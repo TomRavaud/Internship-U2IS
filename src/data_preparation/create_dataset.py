@@ -130,8 +130,8 @@ for bag_file in bag_files:
     except OSError:  # Display a message if it already exists and quit
         print("Existing directory " + results_dir)
         print("Aborting\n")
-        # sys.exit(1)  # Stop the execution of the script
-        pass
+        sys.exit(1)  # Stop the execution of the script
+        # pass
 
 
     # Write images on disk and create a list of their timestamps
