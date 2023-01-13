@@ -1,5 +1,7 @@
 """
-Script to convert a bagfile containing images, IMU and odometry data into
+Step 1:
+
+Convert a bagfile containing images, IMU and odometry data to
 a self-supervised dataset for terrain traversability analysis
 """
 

@@ -3,8 +3,8 @@
 from __future__ import division, print_function
 
 import os
-# Ignore warnings
-import warnings
+import warnings  # To ignore warnings
+
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,8 +16,8 @@ from torchvision import transforms, utils
 
 warnings.filterwarnings("ignore")
 
-#DATASET = "datasets/dataset_sample_bag/"
-DATASET = "datasets/dataset_rania_2022-07-01-11-40-52/"
+DATASET = "datasets/dataset_sample_bag/"
+# DATASET = "datasets/dataset_rania_2022-07-01-11-40-52/"
 
 
 class DataProject(Dataset):
@@ -275,7 +275,7 @@ data_transforms1 = transforms.Compose([
 
 
 training_data1 = DataProject(
-    csv_file=DATASET+'/_imu_data.csv', root_dir=DATASET+'/_zed_node_rgb_image_rect_color', transform=data_transforms1
+    csv_file=DATASET+'/imu_data.csv', root_dir=DATASET+'/zed_node_rgb_image_rect_color', transform=data_transforms1
 )
 
 

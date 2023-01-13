@@ -1,2 +1,7 @@
+__pycache__/
 datasets/
 results/
+pytorch/
+
+coffee.jpg
+imagenet_class_labels.txt
