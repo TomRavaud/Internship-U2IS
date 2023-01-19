@@ -4,12 +4,17 @@ import sys
 # Add the location of the data_preparation directory at runtime
 # (would be better to structure the files into packages)
 sys.path.insert(
-    0, "/media/tom/Shared/Stage-ENSTA-2023/Code/src/data_preparation")
+    0, "/home/tom/Traversability-Tom/Internship-U2IS/src/data_preparation")
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torch import optim
+
+import torchvision
+
+# TensorBoard for visualization
+from torch.utils.tensorboard import SummaryWriter
 
 import matplotlib.pyplot as plt
 
@@ -119,13 +124,19 @@ class LeNet5(nn.Module):
 
 # Use a GPU is available
 device = "cuda" if torch.cuda.is_available() else "cpu"
+print(device)
+
+# Open TensorBoard
+tensorboard = SummaryWriter()
 
 # Create the model and move it to the GPU (if available)
 model = LeNet5().to(device=device)
-
 print(model)
 
-# model.apply(model.init_weights)
+# Display the architecture in TensorBoard
+images, traversal_scores = next(iter(dp.train_loader))
+images = images.to(device)
+tensorboard.add_graph(model, images)
 
 # Define the loss function
 criterion = nn.MSELoss()
@@ -136,6 +147,7 @@ optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 # An epoch is one complete pass of the training dataset through the network
 NB_EPOCHS = 10
 
+# Create a tensor to store the training and evaluation loss values 
 loss_values = torch.empty(2, NB_EPOCHS)
 
 
@@ -204,17 +216,25 @@ for epoch in range(NB_EPOCHS):
     #       Validation Loss: {val_loss/len(dp.val_loader)}")
     loss_values[0, epoch] = train_loss/len(dp.train_loader)
     loss_values[1, epoch] = val_loss/len(dp.val_loader)
+    
+    # Add the losses to TensorBoard
+    tensorboard.add_scalar("train_loss", train_loss/len(dp.train_loader), epoch)
+    tensorboard.add_scalar("val_loss", val_loss/len(dp.val_loader), epoch)
+    
+
+# Close TensorBoard
+tensorboard.close()
 
 
-print(loss_values)
+# print(loss_values)
 
-plt.figure()
+# plt.figure()
 
-plt.plot(range(NB_EPOCHS), loss_values[0], "b", label="train_loss")
-plt.plot(range(NB_EPOCHS), loss_values[1], "r--", label="val_loss")
+# plt.plot(range(NB_EPOCHS), loss_values[0], "b", label="train_loss")
+# plt.plot(range(NB_EPOCHS), loss_values[1], "r--", label="val_loss")
 
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.legend()
+# plt.xlabel("Epoch")
+# plt.ylabel("Loss")
+# plt.legend()
 
-plt.show()
+# plt.show()

@@ -2,6 +2,7 @@ __pycache__/
 datasets/
 results/
 pytorch/
+runs/
 
 coffee.jpg
 imagenet_class_labels.txt
