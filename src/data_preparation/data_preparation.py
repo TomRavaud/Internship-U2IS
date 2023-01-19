@@ -99,7 +99,10 @@ train_transform = transforms.Compose([
     
     # Crop the image at the center
     # (if size is an int, a square crop is made)
-    transforms.CenterCrop(200),
+    transforms.CenterCrop(100),
+    
+    # Convert the image to grayscale
+    # transforms.Grayscale(num_output_channels=1),
     
     # Perform horizontal flip of the image with a probability of 0.5
     transforms.RandomHorizontalFlip(p=0.5),
@@ -120,6 +123,7 @@ train_transform = transforms.Compose([
 # (for instance we do not need to flip the image)
 test_transform = transforms.Compose([
     transforms.Resize(300),
+    # transforms.Grayscale(),
     transforms.CenterCrop(200),
     transforms.ToTensor(),
     
@@ -155,13 +159,13 @@ train_set, val_set = random_split(train_data, [0.8, 0.2])
 # have to create a Sampler object)
 train_loader = DataLoader(
     train_set,
-    batch_size=5,
+    batch_size=2,
     shuffle=True,
 )
 
 val_loader = DataLoader(
     val_set,
-    batch_size=5,
+    batch_size=2,
     shuffle=True,
 )
 
@@ -182,9 +186,9 @@ if __name__ == "__main__":
     # Go through the batches and display images
     for batch in train_loader:
         for image in batch[0]:
-            plt.imshow(transforms.ToPILImage()(image))
+            plt.imshow(transforms.ToPILImage()(image), cmap="gray")
             plt.show()
-            
+    
     # The next() function returns the next item from the iterator,
     # ie the first batch (we can access the second batch with another
     # next() call)
