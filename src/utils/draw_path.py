@@ -236,9 +236,14 @@ plt.legend()
 plt.show()
 
 
+
+# print(points_right_world)
+# print(points_right_world[::-1])
+
 # Down sample the points
-points_left_world = points_left_world[::20]
-points_right_world = points_right_world[::20]
+points_left_world = points_left_world[50:150:20]
+points_right_world = points_right_world[50:150:20]
+points_right_world = points_right_world[::-1]
 points_world = np.concatenate([points_left_world, points_right_world])
 # points_world = np.concatenate([points_world, points_left_world, points_right_world])
 
@@ -264,4 +269,22 @@ image = draw_points(image, points_image)
 cv2.imshow("Robot path", image)
 
 # Wait for a key press to close the window
+cv2.waitKey()
+
+
+# Create a mask to segment the robot path
+mask = np.zeros(image.shape[:2], dtype=np.uint8)
+
+# Represent the path as a filled polygon
+points_image = points_image.astype(np.int32)
+points_image = points_image.reshape((-1, 1, 2))
+mask = cv2.fillPoly(mask, [points_image], (255, 255, 255))
+
+cv2.imshow("Mask", mask)
+cv2.waitKey()
+
+# Set all pixels that do not belong to the path to black
+image_masked = cv2.bitwise_and(image, image, mask=mask)
+
+cv2.imshow("Masked image", image_masked)
 cv2.waitKey()
