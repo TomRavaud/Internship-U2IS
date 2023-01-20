@@ -91,7 +91,7 @@ def draw_points(image, points, color=(0, 0, 255)):
     
     # Draw a red circle on the image for point
     for point in points:
-        cv2.circle(image, tuple(point), radius=3,
+        cv2.circle(image, tuple(point), radius=2,
                    color=color, thickness=-1)
         
     return image
@@ -138,6 +138,12 @@ nb_points = 2765
 # robot in the world frame
 points_world = np.zeros((2765, 3), dtype=np.float32)
 
+# Distance between the left and the right wheels
+L = 0.67
+
+# Array to store the heading of the robot
+theta = np.zeros((2765, 1), dtype=np.float32)
+
 # Index of the current position of the robot
 i = 0
 
@@ -172,25 +178,69 @@ for _, msg_odom, t_odom in bag.read_messages(topics=[ODOM_TOPIC]):
                                     msg_odom.pose.pose.position.y,
                                     msg_odom.pose.pose.position.z])
         
+        # Make the quaternion a numpy array
+        q = np.array([msg_odom.pose.pose.orientation.x,
+                      msg_odom.pose.pose.orientation.y,
+                      msg_odom.pose.pose.orientation.z,
+                      msg_odom.pose.pose.orientation.w])
+        # Convert the quaternion into Euler angles
+        theta[i] = tf.transformations.euler_from_quaternion(q)[2]
+        
         i += 1
 
 # Close the bag file
 bag.close()
 
 
+# Create arrays to store left and write front wheels positions
+points_left_world = np.copy(points_world)
+points_right_world = np.copy(points_world)
+
+# Compute the distances between the wheels and the robot's origin
+delta_X = L*np.sin(theta[:, 0])/2
+delta_Y = L*np.cos(theta[:, 0])/2
+
+# Compute the successive positions of the outer points of the two front wheels
+points_left_world[:, 0] -= delta_X
+points_left_world[:, 1] += delta_Y
+points_right_world[:, 0] += delta_X
+points_right_world[:, 1] -= delta_Y
+
 # Get the coordinates of the successive robot positions
-X = points_world[:, 0]
-Y = points_world[:, 1]
+X = points_world[:, 0, None]
+Y = points_world[:, 1, None]
+
+# Get the coordinates of the successive front wheels positions
+X_left = points_left_world[:, 0, None]
+Y_left = points_left_world[:, 1, None]
+X_right = points_right_world[:, 0, None]
+Y_right = points_right_world[:, 1, None]
+
 
 # Display the evolution of the robot position in the world frame
 plt.figure("Robot position")
-plt.plot(X, Y, ".")
-plt.plot(X[0], Y[0], "ro")
+axes = plt.axes().set_aspect("equal")
+
+plt.plot(X, Y, ".", label="Robot frame origin", markersize=1)
+plt.plot(X_left, Y_left, ".", label="Left wheel", markersize=1)
+plt.plot(X_right, Y_right, ".", label="Right wheel", markersize=1)
+
+# Draw a red point for the first position
+plt.plot(X[0], Y[0], "ro", label="First position")
+
 plt.xlabel("x")
 plt.ylabel("y")
 plt.title("Evolution of the robot 2D position")
+plt.legend()
+
 plt.show()
 
+
+# Down sample the points
+points_left_world = points_left_world[::20]
+points_right_world = points_right_world[::20]
+points_world = np.concatenate([points_left_world, points_right_world])
+# points_world = np.concatenate([points_world, points_left_world, points_right_world])
 
 # Compute the points coordinates in the robot frame
 points_robot = apply_rigid_motion(points_world,
