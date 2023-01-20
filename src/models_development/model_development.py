@@ -1,3 +1,11 @@
+"""
+Step 3:
+
+Design a NN model, train it with our training data, test its performance,
+and optimize our hyperparameters to improve performance to a desired level
+"""
+
+
 # Import modules and libraries
 import sys
 

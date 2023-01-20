@@ -1,8 +1,11 @@
+# Directories to be ignored
 __pycache__/
 datasets/
 results/
 pytorch/
 runs/
+bagfiles/raw_bagfiles/
 
+# Files used to train myself on classification with the ImageNet dataset
 coffee.jpg
 imagenet_class_labels.txt
