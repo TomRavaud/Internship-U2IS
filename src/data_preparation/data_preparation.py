@@ -13,6 +13,7 @@ import pandas as pd
 from PIL import Image
 import matplotlib.pyplot as plt
 
+import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset, random_split
 
@@ -197,3 +198,15 @@ if __name__ == "__main__":
     # print("Traversal cost batch shape : ", train_traversal_costs.size())
     # plt.imshow(transforms.ToPILImage()(train_images[0]))
     # plt.show()
+
+    # TODO: To check
+    # # Image normalization
+    # # Concatenate all the images of the dataset
+    # images = torch.cat([train_sample[0].unsqueeze(0) for train_sample in train_set], dim=0)
+    # # Compute the mean of the images
+    # mean = torch.mean(images)
+    # # Compute the standard deviation of the entire training set
+    # std = torch.std(images)
+
+    # print(std)
+    # print(mean)

@@ -98,7 +98,10 @@ def draw_points(image, points, color=(0, 0, 255)):
 
 
 # Name of the bag file
-FILE = "bagfiles/raw_bagfiles/tom_road.bag"
+# FILE = "bagfiles/sample_bag.bag"
+# FILE = "bagfiles/raw_bagfiles/tom_road.bag"
+FILE = "bagfiles/raw_bagfiles/tom_path.bag"
+
 # Name of the odometry topic
 ODOM_TOPIC = "/odometry/filtered"
 # Name of the image topic
@@ -132,17 +135,17 @@ transform = False
 
 # Number of recorded positions of the robot after the first
 # image has been taken
-nb_points = 2765
+nb_points = 1395
 
 # Create an array to contain the successives coordinates of the
 # robot in the world frame
-points_world = np.zeros((2765, 3), dtype=np.float32)
+points_world = np.zeros((nb_points, 3), dtype=np.float32)
 
 # Distance between the left and the right wheels
 L = 0.67
 
 # Array to store the heading of the robot
-theta = np.zeros((2765, 1), dtype=np.float32)
+theta = np.zeros((nb_points, 1), dtype=np.float32)
 
 # Index of the current position of the robot
 i = 0
@@ -187,6 +190,7 @@ for _, msg_odom, t_odom in bag.read_messages(topics=[ODOM_TOPIC]):
         theta[i] = tf.transformations.euler_from_quaternion(q)[2]
         
         i += 1
+# print(i)
 
 # Close the bag file
 bag.close()
@@ -235,14 +239,11 @@ plt.legend()
 
 plt.show()
 
-
-
-# print(points_right_world)
-# print(points_right_world[::-1])
-
 # Down sample the points
-points_left_world = points_left_world[50:150:20]
-points_right_world = points_right_world[50:150:20]
+# points_left_world = points_left_world[4:200:20]
+# points_right_world = points_right_world[4:200:20]
+points_left_world = points_left_world[60:200:20]
+points_right_world = points_right_world[60:200:20]
 points_right_world = points_right_world[::-1]
 points_world = np.concatenate([points_left_world, points_right_world])
 # points_world = np.concatenate([points_world, points_left_world, points_right_world])
@@ -267,7 +268,6 @@ image = draw_points(image, points_image)
 
 # Display the image
 cv2.imshow("Robot path", image)
-
 # Wait for a key press to close the window
 cv2.waitKey()
 
@@ -287,4 +287,36 @@ cv2.waitKey()
 image_masked = cv2.bitwise_and(image, image, mask=mask)
 
 cv2.imshow("Masked image", image_masked)
+cv2.waitKey()
+
+
+# Image coordinates of the first visible quadrilateral
+input_points = np.zeros((4, 2), dtype=np.float32)
+input_points[:2] = points_image[:2].reshape((2, 2))
+input_points[-2:] = points_image[-2:].reshape((2, 2))
+
+
+# Real height of the first quadrilateral
+H = np.sqrt((points_world[0, 0] - points_world[1, 0])**2 +
+            (points_world[0, 1] - points_world[1, 1])**2)
+
+# Arbitrary scale factor
+s = 1000
+
+# Real dimensions of the quadrilateral
+# (up to a scale factor)
+output_points = s*np.array([[0, H],
+                            [0, 0],
+                            [L, 0],
+                            [L, H]], dtype=np.float32)
+
+# Compute the homography matrix between these two sets of points
+F = cv2.getPerspectiveTransform(input_points, output_points)
+
+# Apply the homography matrix to the image (and only keep the part which
+# contains the region delimited by the quadrilateral)
+image_dewarped = cv2.warpPerspective(image, F, (np.int32(s*L),
+                                                np.int32(s*H)))
+
+cv2.imshow("De-warped image", image_dewarped)
 cv2.waitKey()
