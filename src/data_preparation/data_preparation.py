@@ -129,10 +129,11 @@ test_transform = transforms.Compose([
     transforms.ToTensor(),
     
     # Mean and standard deviation were pre-computed on the training data
-    # transforms.Normalize(
-    #     mean=[0., 0., 0.],
-    #     std=[0., 0., 0.]
-    # )
+    # (on the ImageNet dataset)
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    ),
 ])
 
 

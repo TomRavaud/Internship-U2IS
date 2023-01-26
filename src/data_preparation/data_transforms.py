@@ -15,7 +15,9 @@ from torchvision import transforms
 if __name__ == "__main__":
     # Open the first image of the sample dataset
     image = Image.open(
-        "datasets/dataset_sample_bag/zed_node_rgb_image_rect_color/00000.png")
+        "datasets/dataset_tom_path/zed_node_rgb_image_rect_color/00000.png")
+    # image = Image.open(
+    #     "datasets/dataset_sample_bag/zed_node_rgb_image_rect_color/00000.png")
     
     # Create a new figure
     plt.figure()
@@ -26,7 +28,7 @@ if __name__ == "__main__":
     plt.title("Original image")
     
     # Resize the image
-    image_resized = transforms.Resize(300)(image)
+    image_resized = transforms.Resize(200)(image)
     
     # Display the resized image
     plt.subplot(222)
@@ -34,7 +36,7 @@ if __name__ == "__main__":
     plt.title("Resized image")
     
     # Crop the image at the center
-    image_cropped = transforms.CenterCrop(200)(image)
+    image_cropped = transforms.CenterCrop(100)(image)
     
     # Display the cropped image
     plt.subplot(223)

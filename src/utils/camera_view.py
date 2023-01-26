@@ -12,8 +12,10 @@ import cv_bridge
 import cv2
 
 # Name of the bag file
-FILE = "bagfiles/sample_bag.bag"
+FILE = "bagfiles/raw_bagfiles/tom_path.bag"
+# FILE = "bagfiles/sample_bag.bag"
 # Name of the image topic
+# IMAGE_TOPIC = "/zed_node/depth/depth_registered"
 IMAGE_TOPIC = "/zed_node/rgb/image_rect_color"
 
 # Initialize the bridge between ROS and OpenCV images
@@ -24,9 +26,9 @@ bag = rosbag.Bag(FILE)
 
 # Read the bag file
 for topic, msg, t in bag.read_messages(topics=[IMAGE_TOPIC]):
-
+    # print(msg.type)
     # Convert the ROS Image type to a numpy ndarray
-    image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+    image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
     
     # Display the image
     cv2.imshow("Preview", image)
