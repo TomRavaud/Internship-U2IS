@@ -8,16 +8,15 @@ from PIL import Image, ImageDraw, ImageFont  # Image processing
 from tqdm import tqdm  # Progress bar
 
 
-DATASET = "datasets/dataset_sample_bag/"
-# DATASET = "datasets/dataset_rania_2022-07-01-11-40-52/"
+DATASET = "datasets/dataset_all/"
 
 # Read the csv file containing image names and
 # associated pitch velocity variance measurements
-csv_file = DATASET + "/imu_data.csv"
+csv_file = DATASET + "/traversal_costs.csv"
 dataframe = pd.read_csv(csv_file)
 
-# Sort the dataframe by pitch velocity variance values
-sorted_frame = dataframe.sort_values(by=['y'])
+# Sort the dataframe by traversal cost
+sorted_frame = dataframe.sort_values(by=["traversal_cost"])
 
 # Create a new directory if it does not exist
 try:
@@ -45,7 +44,7 @@ for line in range(2):
         
         # Display the image
         img_name = os.path.join(DATASET + "zed_node_rgb_image_rect_color",
-                                sorted_frame.iloc[line*5+col, 0])
+                                sorted_frame.iloc[line*5 + col, 0])
         image = Image.open(img_name)
         image = image.resize((320, 180))
         collage.paste(image, (10 + 340*col, 40 + line*220))

@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 
 
 # Define the data to be used
-DATASET = "datasets/dataset_sample_bag/"
+DATASET = "datasets/dataset_all/"
 
 
 class TraversabilityDataset(Dataset):
@@ -96,11 +96,14 @@ train_transform = transforms.Compose([
     # Reduce the size of the images
     # (if size is an int, the smaller edge of the
     # image will be matched to this number and the ration is kept)
-    transforms.Resize(300),
+    transforms.Resize((70, 210)),
     
     # Crop the image at the center
     # (if size is an int, a square crop is made)
-    transforms.CenterCrop(100),
+    # transforms.CenterCrop(100),
+    
+    # Crop a random square in the image
+    # transforms.RandomCrop((70, 140)),
     
     # Convert the image to grayscale
     # transforms.Grayscale(num_output_channels=1),
@@ -115,17 +118,18 @@ train_transform = transforms.Compose([
     # (based on the data used to train the model(s))
     # (be careful, it only works on torch.*Tensor)
     # transforms.Normalize(
-    #     mean=[0., 0., 0.],
-    #     std=[0., 0., 0.]
-    # )
+    #     mean=[0.485, 0.456, 0.406],
+    #     std=[0.229, 0.224, 0.225]
+    # ),
 ])
 
 # Define a different set of transforms testing
 # (for instance we do not need to flip the image)
 test_transform = transforms.Compose([
-    transforms.Resize(300),
+    transforms.Resize(100),
     # transforms.Grayscale(),
-    transforms.CenterCrop(200),
+    transforms.CenterCrop(100),
+    # transforms.RandomCrop(100),
     transforms.ToTensor(),
     
     # Mean and standard deviation were pre-computed on the training data
@@ -138,22 +142,14 @@ test_transform = transforms.Compose([
 
 
 # Create a Dataset instance for our training data
-train_data = TraversabilityDataset(
-    traversal_costs_file=DATASET+"imu_data.csv",
+data = TraversabilityDataset(
+    traversal_costs_file=DATASET+"traversal_costs.csv",
     images_directory=DATASET+"zed_node_rgb_image_rect_color",
     transform=train_transform
 )
 
 # Split our training dataset into a training dataset and a validation dataset
-train_set, val_set = random_split(train_data, [0.8, 0.2])
-
-# # Create a Dataset instance for our testing data
-# test_set = TraversabilityDataset(
-#     traversal_costs_file="???",
-#     images_directory="???",
-#     transform=test_transform
-# )
-
+train_set, val_set, test_set = random_split(data, [0.8, 0.1, 0.1])
 
 
 # Combine a dataset and a sampler, and provide an iterable over the dataset
@@ -161,35 +157,39 @@ train_set, val_set = random_split(train_data, [0.8, 0.2])
 # have to create a Sampler object)
 train_loader = DataLoader(
     train_set,
-    batch_size=2,
+    batch_size=16,
     shuffle=True,
 )
 
 val_loader = DataLoader(
     val_set,
-    batch_size=2,
+    batch_size=16,
     shuffle=True,
 )
 
-# test_loader = DataLoader(
-#     test_set,
-#     batch_size=5,
-#     shuffle=False,  # SequentialSampler
-# )
+test_loader = DataLoader(
+    test_set,
+    batch_size=16,
+    shuffle=False,  # SequentialSampler
+)
 
 
 # Code executed when the file runs as a script,
 # but not when imported as a module
 if __name__ == "__main__":
-    print("Number of training samples :", len(train_data))
+    print("Number of data samples :", len(data))
     print(len(train_set), "for training")
     print(len(val_set), "for validation")
+    print(len(test_set), "for testing")
     
     # Go through the batches and display images
     for batch in train_loader:
-        for image in batch[0]:
+        for i, image in enumerate(batch[0]):
+            print("Cost: ", batch[1][i].item())
+            
             plt.imshow(transforms.ToPILImage()(image), cmap="gray")
             plt.show()
+            
     
     # The next() function returns the next item from the iterator,
     # ie the first batch (we can access the second batch with another

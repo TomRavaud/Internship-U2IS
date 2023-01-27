@@ -177,12 +177,12 @@ def traversal_cost(roll_angle_values,
 
 
 # Name of the bag file
-FILE = "bagfiles/raw_bagfiles/tom_path.bag"
+FILE = "bagfiles/raw_bagfiles/tom_road.bag"  # TODO: here
 
 # Topics name
 IMAGE_TOPIC = "/zed_node/rgb/image_rect_color"
 ODOM_TOPIC = "/odometry/filtered"
-IMU_TOPIC = "imu/data"
+IMU_TOPIC = "imu/data"  # TODO: here
 
 # Time during which the future trajectory is taken into account
 T = 3  # seconds
@@ -193,7 +193,7 @@ dt = 0.5  # seconds
 # Odometry measurements frequency
 f = 50  # Hz
 
-# 
+# Number of odometry measurements within dt second(s)
 div = np.int32(f*dt)
 
 # Downsampling ratio : if equal to 5, 1 observation out of 5 will be saved
@@ -213,6 +213,10 @@ ROBOT_TO_CAM = np.array([[0, np.sin(alpha), np.cos(alpha), 0.084],
 CAM_TO_ROBOT = inverse_transform_matrix(ROBOT_TO_CAM)
 
 # (Constant) Internal calibration matrix (approx focal length)
+# TODO: here
+# K = np.array([[700, 0, 320],
+#               [0, 700, 180],
+#               [0, 0, 1]])
 K = np.array([[700, 0, 640],
               [0, 700, 360],
               [0, 0, 1]])
@@ -234,7 +238,10 @@ bag_name = os.path.basename(bag.filename)
 directory = os.path.abspath(os.getcwd())
 
 # Set the name of the directory which will store the dataset
-results_dir = directory + "/datasets/dataset_" + bag_name[:-4]
+# TODO: here
+results_dir = directory + "/datasets/dataset_test"
+# results_dir = directory + "/datasets/dataset_all"
+# results_dir = directory + "/datasets/dataset_" + bag_name[:-4]
 
 try:  # A new directory is created if it does not exist yet
     os.mkdir(results_dir)
@@ -262,20 +269,21 @@ except OSError:
 csv_name = results_dir + "/traversal_costs.csv"
 
 # Open the file in the write mode
-file_costs = open(csv_name, "w")
+file_costs = open(csv_name, "a")   #TODO: here
 
 # Create a csv writer
 file_costs_writer = csv.writer(file_costs, delimiter=",")
 
 # Write the first row (columns title)
-headers = ["image_id", "traversal_cost"]
-file_costs_writer.writerow(headers)
+#TODO: here
+# headers = ["image_id", "traversal_cost"]
+# file_costs_writer.writerow(headers)
 
 
 print("Processing images")
 
 # Variable to keep the index of the currently processed image
-index_image = 0
+index_image = 0  #TODO: here
 
 
 # Go through the image topic
@@ -283,8 +291,8 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                                   total=bag.get_message_count(IMAGE_TOPIC)):
 
     # Convert the current ROS image to the OpenCV type
-    image = bridge.imgmsg_to_cv2(msg_image, desired_encoding="rgb8")
-
+    image = bridge.imgmsg_to_cv2(msg_image, desired_encoding="passthrough")
+    
     # Get the first odometry message received after the image
     _, msg_odom, t_odom = next(iter(bag.read_messages(
         topics=[ODOM_TOPIC],
@@ -309,10 +317,10 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
         topics=[ODOM_TOPIC],
         start_time=t_odom,
         end_time=t_odom+rospy.Duration(T))):
-
+        
         # Keep only an odometry measurement every dt second(s)
         if i % div == 0:
-
+            
             # Store the 2D coordinates of the robot position in the world frame
             point_world = np.array([[msg_odom.pose.pose.position.x,
                                      msg_odom.pose.pose.position.y,
@@ -359,14 +367,16 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                                                  K)
             
             # Draw the points on the image
-            # image = draw_points(image, points_image)
-
-            # Compute the maximum coordinate on the y axis of the image plan
+            image = draw_points(image, points_image)
+            
+            # Compute the maximum and minimum coordinates on the y axis of the
+            # image plan
             max_y = np.int32(np.max(points_image_old, axis=0)[1])
+            min_y = np.int32(np.min(points_image, axis=0)[1])
             
             
             # Process the points only if they are visible in the image
-            if max_y < image.shape[0]:
+            if max_y < image.shape[0] and min_y > 0:
                 
                 # Create lists to store all the roll, pitch angles and
                 # velocities measurement within the dt second(s) interval
@@ -399,27 +409,31 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                 # print("\n")
                 
                 # Compute max and min coordinates of the points in the image
-                min_y = np.int32(np.min(points_image, axis=0)[1])
+                # along the x axis
                 min_x = np.int32(np.min([points_image_old[:, 0],
-                                         points_image[:, 0]]))
+                                     points_image[:, 0]]))
                 max_x = np.int32(np.max([points_image_old[:, 0],
-                                         points_image[:, 0]]))
+                                     points_image[:, 0]]))
                 
-                # Draw a rectangle in the image to visualize the region of interest
-                # image = draw_quadrilateral(image,
-                #                            np.array([[min_x, max_y],
-                #                                      [min_x, min_y],
-                #                                      [max_x, min_y],
-                #                                      [max_x, max_y]]),
-                #                            color=(255, 0, 0))
+                # Draw a rectangle in the image to visualize the region
+                # of interest
+                image = draw_quadrilateral(image,
+                                           np.array([[min_x, max_y],
+                                                     [min_x, min_y],
+                                                     [max_x, min_y],
+                                                     [max_x, max_y]]),
+                                           color=(255, 0, 0))
                 
                 # Extract the rectangular region of interest from
                 # the original image
                 image_to_save = image[min_y:max_y, min_x:max_x]
                 
+                
                 # Keep only rectangles which surface is greater than a
                 # given value
                 if image_to_save.shape[0]*image_to_save.shape[1] >= 10000:
+                    print("Ratio W/H: ", image_to_save.shape[1]/image_to_save.shape[0])
+                    print(image_to_save.shape)
                     
                     # print("Image ", index_image, " surface : ",\
                     # image_to_save.shape[0]*image_to_save.shape[1])
@@ -435,16 +449,16 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                     image_name = f"{index_image:05d}.png"
 
                     # Save the image in the correct directory
-                    image_to_save.save(topic_dir + "/" + image_name, "PNG")
+                    # image_to_save.save(topic_dir + "/" + image_name, "PNG")  #TODO: here
                     
                     # Add the image index and the associated score in the csv file
-                    file_costs_writer.writerow([image_name, cost])
-
+                    # file_costs_writer.writerow([image_name, cost])  #TODO: here
+                    
                     index_image += 1
 
                     # Display the image
-                    # cv2.imshow("Image", image)
-                    # cv2.waitKey()
+                    cv2.imshow("Image", image)
+                    cv2.waitKey()
             
             # Update front wheels outer points image coordinates and timestamp
             points_image_old = points_image

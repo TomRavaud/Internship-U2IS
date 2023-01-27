@@ -12,3 +12,9 @@ imagenet_class_labels.txt
 
 Notes.md
 /*.png
+
+# Saved model parameters
+*.params
+
+/dwa.py
+# /trajectory_traversal_cost.py
