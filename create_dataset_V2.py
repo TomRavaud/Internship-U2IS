@@ -173,11 +173,14 @@ def traversal_cost(roll_angle_values,
     roll_velocity_variance = np.var(roll_velocity_values)
     pitch_velocity_variance = np.var(pitch_velocity_values)
     
-    return pitch_velocity_variance
+    # print("Roll vel mean: ", roll_angle_mean)
+    # print("Pitch vel mean: ", pitch_angle_mean)
+    
+    return 1000*(roll_velocity_variance + pitch_velocity_variance)
 
 
 # Name of the bag file
-FILE = "bagfiles/raw_bagfiles/tom_road.bag"  # TODO: here
+FILE = "bagfiles/raw_bagfiles/tom_path_grass.bag"  # TODO: here
 
 # Topics name
 IMAGE_TOPIC = "/zed_node/rgb/image_rect_color"
@@ -239,7 +242,7 @@ directory = os.path.abspath(os.getcwd())
 
 # Set the name of the directory which will store the dataset
 # TODO: here
-results_dir = directory + "/datasets/dataset_test"
+results_dir = directory + "/datasets/dataset_mask"
 # results_dir = directory + "/datasets/dataset_all"
 # results_dir = directory + "/datasets/dataset_" + bag_name[:-4]
 
@@ -269,15 +272,15 @@ except OSError:
 csv_name = results_dir + "/traversal_costs.csv"
 
 # Open the file in the write mode
-file_costs = open(csv_name, "a")   #TODO: here
+file_costs = open(csv_name, "w")   #TODO: here
 
 # Create a csv writer
 file_costs_writer = csv.writer(file_costs, delimiter=",")
 
 # Write the first row (columns title)
 #TODO: here
-# headers = ["image_id", "traversal_cost"]
-# file_costs_writer.writerow(headers)
+headers = ["image_id", "traversal_cost"]
+file_costs_writer.writerow(headers)
 
 
 print("Processing images")
@@ -367,7 +370,7 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                                                  K)
             
             # Draw the points on the image
-            image = draw_points(image, points_image)
+            # image = draw_points(image, points_image)
             
             # Compute the maximum and minimum coordinates on the y axis of the
             # image plan
@@ -417,12 +420,12 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                 
                 # Draw a rectangle in the image to visualize the region
                 # of interest
-                image = draw_quadrilateral(image,
-                                           np.array([[min_x, max_y],
-                                                     [min_x, min_y],
-                                                     [max_x, min_y],
-                                                     [max_x, max_y]]),
-                                           color=(255, 0, 0))
+                # image = draw_quadrilateral(image,
+                #                            np.array([[min_x, max_y],
+                #                                      [min_x, min_y],
+                #                                      [max_x, min_y],
+                #                                      [max_x, max_y]]),
+                #                            color=(255, 0, 0))
                 
                 # Extract the rectangular region of interest from
                 # the original image
@@ -431,34 +434,62 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                 
                 # Keep only rectangles which surface is greater than a
                 # given value
-                if image_to_save.shape[0]*image_to_save.shape[1] >= 10000:
-                    print("Ratio W/H: ", image_to_save.shape[1]/image_to_save.shape[0])
-                    print(image_to_save.shape)
+                if image_to_save.shape[0]*image_to_save.shape[1] >= 10000 and image_to_save.shape[1]/image_to_save.shape[0] <= 5:
+                    # print("Ratio W/H: ", image_to_save.shape[1]/image_to_save.shape[0])
+                    # print(image_to_save.shape)
                     
                     # print("Image ", index_image, " surface : ",\
                     # image_to_save.shape[0]*image_to_save.shape[1])
+                    
+                    #NOTE: from here
+                    # Create a mask to segment the robot path
+                    mask = np.zeros(image.shape[:2], dtype=np.uint8)
 
+                    # Represent the path as a filled polygon
+                    points_quadri = np.array([[min_x, max_y],
+                                                     [min_x, min_y],
+                                                     [max_x, min_y],
+                                                     [max_x, max_y]], dtype=np.int32)
+                    points_quadri = points_quadri.reshape((-1, 1, 2))
+                    mask = cv2.fillPoly(mask, [points_quadri], (255, 255, 255))
+                    # print(mask)
+                    # cv2.imshow("Mask", mask)
+                    # cv2.waitKey()
+                    
+                    mask = cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
+                    mask = Image.fromarray(mask)
+                    
+                    #NOTE: to here
+                    
+                    #FIXME:
+                    image_copy = np.copy(image)
                     # Convert the image from BGR to RGB
-                    image_to_save = cv2.cvtColor(image_to_save,
+                    image_copy = cv2.cvtColor(image_copy,
                                                  cv2.COLOR_BGR2RGB)
                     
+                    #FIXME:
                     # Make a PIL image
-                    image_to_save = Image.fromarray(image_to_save)
+                    image_copy = Image.fromarray(image_copy)
 
                     # Give the image a name
                     image_name = f"{index_image:05d}.png"
 
+                    #FIXME:
                     # Save the image in the correct directory
-                    # image_to_save.save(topic_dir + "/" + image_name, "PNG")  #TODO: here
+                    image_copy.save(topic_dir + "/" + image_name, "PNG")  #TODO: here
+                    
+                    #FIXME:
+                    mask.save(topic_dir + "/mask_" + image_name, "PNG")
                     
                     # Add the image index and the associated score in the csv file
-                    # file_costs_writer.writerow([image_name, cost])  #TODO: here
+                    file_costs_writer.writerow([image_name, cost])  #TODO: here
+                    
                     
                     index_image += 1
 
                     # Display the image
-                    cv2.imshow("Image", image)
-                    cv2.waitKey()
+                    # cv2.imshow("Image", image)
+                    # cv2.waitKey()
             
             # Update front wheels outer points image coordinates and timestamp
             points_image_old = points_image
