@@ -451,7 +451,7 @@ bridge = cv_bridge.CvBridge()
 bag = rosbag.Bag(FILE)
 
 _, _, t_image = next(iter(bag.read_messages(topics=[IMAGE_TOPIC])))
-_, msg_image, t_image = next(iter(bag.read_messages(topics=[IMAGE_TOPIC], start_time=t_image+rospy.Duration(160))))
+_, msg_image, t_image = next(iter(bag.read_messages(topics=[IMAGE_TOPIC], start_time=t_image+rospy.Duration(100))))
 
 # _, msg_depth, t_depth = next(iter(bag.read_messages(topics=[DEPTH_MAP_TOPIC], start_time=t_image+rospy.Duration(150))))
 
@@ -479,13 +479,13 @@ x_init = [0., 0., 0., 0., 0.]
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Device: {device}\n")
 
-# Load the pre-trained AlexNet model
+# Load the pre-trained model
 model = models.resnet18().to(device=device)
 
 # Replace the last layer by a fully-connected one with 1 output
 model.fc = nn.Linear(model.fc.in_features, 1, device=device)
 
-model.load_state_dict(torch.load("src/models_development/resnet18_fine_tuned_small_bag.params"))
+model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_small_bag.params"))
 
 model.eval()
 

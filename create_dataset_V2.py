@@ -25,6 +25,14 @@ import time
 import numpy as np
 import cv2
 
+from scipy.fft import rfft, rfftfreq
+from scipy.ndimage import uniform_filter1d
+
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+import pandas as pd
+
 
 def pose_to_transform_matrix(pose_msg):
     """Convert a Pose object to a numpy transform matrix
@@ -179,6 +187,67 @@ def traversal_cost(roll_angle_values,
     return 1000*(roll_velocity_variance + pitch_velocity_variance)
 
 
+def spectral_centroid(magnitudes, frequencies):
+    # Weighted mean of the frequencies present in the signal with their
+    # magnitudes as the weights
+    return np.sum(magnitudes*frequencies)/np.sum(magnitudes)
+
+def spectral_spread(magnitudes, frequencies, sc):
+    return np.sqrt(np.sum((frequencies - sc)**2 * magnitudes) / np.sum(magnitudes))
+
+def spectral_energy(magnitudes):
+    return np.sum(magnitudes**2)
+
+def traversal_cost_2(z_acceleration_values,
+                     roll_velocity_values,
+                     pitch_velocity_values):
+    
+    IMU_SAMPLE_RATE = 43
+    
+    # Moving average
+    z_acceleration_mean = uniform_filter1d(z_acceleration_values, size=5)
+    roll_velocity_mean = uniform_filter1d(roll_velocity_values, size=5)
+    pitch_velocity_mean = uniform_filter1d(pitch_velocity_values, size=5)
+    
+    # Variances
+    z_acceleration_variance = np.var(z_acceleration_mean)
+    roll_velocity_variance = np.var(roll_velocity_mean)
+    pitch_velocity_variance = np.var(pitch_velocity_mean)
+    
+    # Apply windowing because the signal is not periodic
+    hanning_window = np.hanning(len(z_acceleration_values))
+    z_acceleration_mean_windowing = z_acceleration_mean*hanning_window
+    roll_velocity_mean_windowing = roll_velocity_mean*hanning_window
+    pitch_velocity_mean_windowing = pitch_velocity_mean*hanning_window
+    
+    # Discrete Fourier transform
+    z_acceleration_magnitudes = np.abs(rfft(z_acceleration_mean_windowing))
+    roll_velocity_magnitudes = np.abs(rfft(roll_velocity_mean_windowing))
+    pitch_velocity_magnitudes = np.abs(rfft(pitch_velocity_mean_windowing))
+    frequencies = rfftfreq(len(z_acceleration_values), 1/IMU_SAMPLE_RATE)
+    
+    # Energy
+    z_acceleration_energy = spectral_energy(z_acceleration_magnitudes)
+    roll_velocity_energy = spectral_energy(roll_velocity_magnitudes)
+    pitch_velocity_energy = spectral_energy(pitch_velocity_magnitudes)
+    
+    # Spectral centroid
+    z_acceleration_sc = spectral_centroid(z_acceleration_magnitudes, frequencies)
+    roll_velocity_sc = spectral_centroid(roll_velocity_magnitudes, frequencies)
+    pitch_velocity_sc = spectral_centroid(pitch_velocity_magnitudes, frequencies)
+    
+    # Spectral spread
+    z_acceleration_ss = spectral_spread(z_acceleration_magnitudes, frequencies, z_acceleration_sc)
+    roll_velocity_ss = spectral_spread(roll_velocity_magnitudes, frequencies, roll_velocity_sc)
+    pitch_velocity_ss = spectral_spread(pitch_velocity_magnitudes, frequencies, pitch_velocity_sc)
+    
+    
+    return np.array([z_acceleration_variance, z_acceleration_energy, z_acceleration_sc, z_acceleration_ss,
+                     roll_velocity_variance, roll_velocity_energy, roll_velocity_sc, roll_velocity_ss,
+                     pitch_velocity_variance, pitch_velocity_energy, pitch_velocity_sc, pitch_velocity_ss])
+    
+
+
 # Name of the bag file
 FILE = "bagfiles/raw_bagfiles/tom_path_grass.bag"  # TODO: here
 
@@ -228,6 +297,22 @@ K = np.array([[700, 0, 640],
 bridge = cv_bridge.CvBridge()
 
 
+# PCA
+X_path_grass = np.load("X_path_grass.npy")
+
+# Normalize the dataset
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X_path_grass)
+
+# Apply PCA
+pca = PCA(n_components=1)
+X_pc = pca.fit_transform(X_scaled)
+# dataframe_pc = pd.DataFrame(X_pc, columns=["pc1"])
+
+# print(X_pc)
+# print(dataframe_pc)
+
+
 print("Reading file : " + FILE)
 
 # Open the bag file
@@ -242,7 +327,7 @@ directory = os.path.abspath(os.getcwd())
 
 # Set the name of the directory which will store the dataset
 # TODO: here
-results_dir = directory + "/datasets/dataset_mask"
+results_dir = directory + "/datasets/dataset_pc"
 # results_dir = directory + "/datasets/dataset_all"
 # results_dir = directory + "/datasets/dataset_" + bag_name[:-4]
 
@@ -287,6 +372,9 @@ print("Processing images")
 
 # Variable to keep the index of the currently processed image
 index_image = 0  #TODO: here
+
+#FIXME:
+# X = np.zeros((514, 12))
 
 
 # Go through the image topic
@@ -387,6 +475,8 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                 pitch_angle_values = []
                 roll_velocity_values = []
                 pitch_velocity_values = []
+                
+                z_acceleration_values = []
 
                 # Read the IMU measurements within the dt second(s) interval
                 for _, msg_imu, t_imu in bag.read_messages(
@@ -400,6 +490,8 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                     pitch_angle_values.append(msg_imu.orientation.y)
                     roll_velocity_values.append(msg_imu.angular_velocity.x)
                     pitch_velocity_values.append(msg_imu.angular_velocity.y)
+                    
+                    z_acceleration_values.append(msg_imu.linear_acceleration.z)
 
                 # Compute a traversal cost based on IMU measurements
                 # statistics
@@ -441,45 +533,25 @@ for _, msg_image, t_image in tqdm(bag.read_messages(topics=[IMAGE_TOPIC]),
                     # print("Image ", index_image, " surface : ",\
                     # image_to_save.shape[0]*image_to_save.shape[1])
                     
-                    #NOTE: from here
-                    # Create a mask to segment the robot path
-                    mask = np.zeros(image.shape[:2], dtype=np.uint8)
-
-                    # Represent the path as a filled polygon
-                    points_quadri = np.array([[min_x, max_y],
-                                                     [min_x, min_y],
-                                                     [max_x, min_y],
-                                                     [max_x, max_y]], dtype=np.int32)
-                    points_quadri = points_quadri.reshape((-1, 1, 2))
-                    mask = cv2.fillPoly(mask, [points_quadri], (255, 255, 255))
-                    # print(mask)
-                    # cv2.imshow("Mask", mask)
-                    # cv2.waitKey()
+                    # X[index_image] = traversal_cost_2(z_acceleration_values,
+                    #                         roll_velocity_values,
+                    #                         pitch_velocity_values)
                     
-                    mask = cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
-                    mask = Image.fromarray(mask)
-                    
-                    #NOTE: to here
-                    
-                    #FIXME:
-                    image_copy = np.copy(image)
                     # Convert the image from BGR to RGB
-                    image_copy = cv2.cvtColor(image_copy,
+                    image_to_save = cv2.cvtColor(image_to_save,
                                                  cv2.COLOR_BGR2RGB)
                     
-                    #FIXME:
                     # Make a PIL image
-                    image_copy = Image.fromarray(image_copy)
+                    image_to_save = Image.fromarray(image_to_save)
 
                     # Give the image a name
                     image_name = f"{index_image:05d}.png"
 
-                    #FIXME:
                     # Save the image in the correct directory
-                    image_copy.save(topic_dir + "/" + image_name, "PNG")  #TODO: here
+                    image_to_save.save(topic_dir + "/" + image_name, "PNG")  #TODO: here
                     
-                    #FIXME:
-                    mask.save(topic_dir + "/mask_" + image_name, "PNG")
+                    
+                    cost = X_pc[index_image][0]
                     
                     # Add the image index and the associated score in the csv file
                     file_costs_writer.writerow([image_name, cost])  #TODO: here
@@ -501,3 +573,5 @@ bag.close()
 
 # Close the csv file
 file_costs.close()
+
+# np.save("X_path_grass.npy", X)

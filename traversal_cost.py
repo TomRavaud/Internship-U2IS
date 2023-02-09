@@ -9,6 +9,14 @@ plt.rcParams['text.usetex'] = True  # Render Matplotlib text with Tex
 from scipy.fft import rfft, rfftfreq
 from scipy.ndimage import uniform_filter1d
 
+import os
+
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
+import pandas as pd
+
+
 """
 tom_path_grass:
 - grass: 175 - 190
@@ -25,7 +33,7 @@ tom_grass_wood:
 - grass - leaves: 137 - 147 (0.5)
 - leaves: 166 - 176
 """
-data = np.load("grassmud_t10_v1.npy")
+data = np.load("samples/grassmud_t10_v1.npy")
 
 z_acceleration = data[:, 0]
 roll_rate = data[:, 1]
@@ -34,8 +42,10 @@ x_velocity = data[:, 3]
 
 IMU_SAMPLE_RATE = 43
 
-roll_rate_mean = uniform_filter1d(roll_rate, size=5)  # To reduce noise
+# Apply a mean filter to reduce noise
+roll_rate_mean = uniform_filter1d(roll_rate, size=5)
 
+# Apply windowing because the signal is not periodic
 hanning_window = np.hanning(len(z_acceleration))
 roll_rate_windowing = roll_rate*hanning_window
 
@@ -86,6 +96,28 @@ roll_rate_mean_windowing_fourier = rfft(roll_rate_mean_windowing)
 
 frequencies = rfftfreq(len(z_acceleration), 1/IMU_SAMPLE_RATE)
 
+
+def spectral_centroid(magnitudes, frequencies):
+    # Weighted mean of the frequencies present in the signal with their
+    # magnitudes as the weights
+    return np.sum(magnitudes*frequencies)/np.sum(magnitudes)
+
+def spectral_spread(magnitudes, frequencies, sc):
+    return np.sqrt(np.sum((frequencies - sc)**2 * magnitudes) / np.sum(magnitudes))
+
+def spectral_energy(magnitudes):
+    return np.sum(magnitudes**2)
+
+def spectral_roll_off(magnitudes, frequencies):
+    energy = spectral_energy(magnitudes)
+    
+    for i in range(len(frequencies)):
+        if np.sum(magnitudes[:i]**2) >= 0.95*energy:
+            return frequencies[i-1]
+        
+    return None
+
+
 # 2d frequency domain plots
 plt.figure()
 
@@ -97,14 +129,30 @@ plt.xlabel("Frequency ($s^{-1}$)")
 plt.ylabel("Amplitude ($m/s^2$)")
 
 plt.subplot(132)
-plt.plot(frequencies,
-         np.abs(roll_rate_fourier), "b", label="raw")
-plt.plot(frequencies,
-         np.abs(roll_rate_mean_fourier), "c", label="mean filter")
-plt.plot(frequencies,
-         np.abs(roll_rate_windowing_fourier), "m", label="Hanning windowing")
+# plt.plot(frequencies,
+#          np.abs(roll_rate_fourier), "b", label="raw")
+# plt.axvline(spectral_centroid(np.abs(roll_rate_fourier), frequencies))
+
+# plt.plot(frequencies,
+#          np.abs(roll_rate_mean_fourier), "c", label="mean filter")
+# plt.axvline(spectral_centroid(np.abs(roll_rate_mean_fourier), frequencies))
+
+# plt.plot(frequencies,
+#          np.abs(roll_rate_windowing_fourier), "m", label="Hanning windowing")
+# plt.axvline(spectral_centroid(np.abs(roll_rate_windowing_fourier), frequencies))
+
 plt.plot(frequencies,
          np.abs(roll_rate_mean_windowing_fourier), "r", label="mean filter + Hanning windowing")
+
+sc = spectral_centroid(np.abs(roll_rate_mean_windowing_fourier), frequencies)
+plt.axvline(sc, color="k", label="spectral centroid")
+
+ss = spectral_spread(np.abs(roll_rate_mean_windowing_fourier), frequencies, sc)
+print(ss)
+
+sro = spectral_roll_off(np.abs(roll_rate_mean_windowing_fourier), frequencies)
+# plt.axvline(sro)
+
 plt.title("Roll rate")
 plt.xlabel("Frequency ($s^{-1}$)")
 plt.ylabel("Amplitude ($rad/s$)")
@@ -116,6 +164,14 @@ plt.plot(frequencies,
 plt.title("Pitch rate")
 plt.xlabel("Frequency ($s^{-1}$)")
 plt.ylabel("Amplitude ($rad/s$)")
+
+
+
+# print("Roll rate variance: ", np.var(roll_rate))
+# print("Roll rate mean variance: ", np.var(roll_rate_mean))
+# print("Roll rate window variance: ", np.var(roll_rate_windowing))
+# print("Roll rate mean window variance: ", np.var(roll_rate_mean_windowing))
+
 
 
 # FILES = ["grass_t15_v1.npy",
@@ -142,7 +198,7 @@ plt.ylabel("Amplitude ($rad/s$)")
 # pitch_rates = []
 
 # for file in FILES:
-#     data = np.load(file)
+#     data = np.load("samples/" + file)
     
 #     z_acceleration = data[:, 0]
 #     roll_rate = data[:, 1]
@@ -198,3 +254,113 @@ plt.ylabel("Amplitude ($rad/s$)")
 
 
 plt.show()
+
+
+X = np.zeros((59, 12))
+labels = []
+
+directory = "samples/subsamples"
+
+index_sample = 0
+
+for filename in os.listdir(directory):
+    f = os.path.join(directory, filename)
+    
+    data = np.load(f)
+    
+    labels.append(filename.split("_")[0])
+    
+    for i in range(3):
+        measurements = data[:, i] if i != 0 else data[:, i] - 9.81
+    
+        # Apply a mean filter to reduce noise
+        measurements_mean = uniform_filter1d(measurements, size=5)
+        
+        # Compute the variance
+        X[index_sample, i*4] = np.var(measurements_mean)
+
+        # Apply windowing because the signal is not periodic
+        hanning_window = np.hanning(50)
+        measurements_mean_windowing = measurements_mean*hanning_window
+
+        # Discrete Fourier transform
+        measurements_mean_windowing_fourier = rfft(measurements)
+        magnitudes = np.abs(measurements_mean_windowing_fourier)
+        frequencies = rfftfreq(50, 1/IMU_SAMPLE_RATE)
+        
+        energy = spectral_energy(magnitudes)
+        X[index_sample, i*4+1] = energy
+        
+        sc = spectral_centroid(magnitudes, frequencies)
+        X[index_sample, i*4+2] = sc
+
+        ss = spectral_spread(magnitudes, frequencies, sc)
+        X[index_sample, i*4+3] = ss
+    
+    index_sample += 1
+    
+
+# print(labels)
+
+# names = list(set(labels))
+# print(names)
+
+fig = plt.figure()
+for i in range(len(labels)):
+    plt.plot(X[i, 11], [0], "o", label=labels[i], markersize=10)
+# plt.plot(X[:, 0], np.zeros_like(X[:, 0]), "r+")
+plt.legend()
+plt.title("Pitch rate spectral spread")
+
+ax = fig.gca()
+
+for i, p in enumerate(ax.get_lines()):    # this is the loop to change Labels and colors
+    if p.get_label() in labels[:i]:    # check for Name already exists
+        idx = labels.index(p.get_label())       # find ist index
+        p.set_c(ax.get_lines()[idx].get_c())   # set color
+        p.set_label('_' + p.get_label())  
+plt.legend()
+
+
+# Normalize the dataset
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Convert the dataset to a pandas DataFrame
+columns = ["var z", "en z", "sc z", "ss z", "var r", "en r", "sc r", "ss r", "var p", "en p", "sc p", "ss p"]
+dataframe = pd.DataFrame(X_scaled, columns=columns)
+
+# Apply PCA
+pca = PCA(n_components=2)
+X_pc = pca.fit_transform(X_scaled)
+dataframe_pc = pd.DataFrame(X_pc, columns=["pc1", "pc2"])
+
+# print(dataframe_pc)
+
+
+plt.figure()
+
+labels_unique = list(set(labels))
+labels = np.array(labels)
+
+for label in labels_unique:
+    indexes_label = labels == label
+    plt.scatter(dataframe_pc.loc[indexes_label, 'pc1'],
+                dataframe_pc.loc[indexes_label, 'pc2'],
+                label=label)
+
+plt.legend()
+plt.xlabel("Principal component 1")
+plt.ylabel("Principal component 2")
+plt.show()
+
+# print(X_scaled)
+# print(pca.components_)
+
+# plt.figure()
+# plt.plot(np.arange(pca.n_components_)+1, pca.explained_variance_ratio_, 'o-', linewidth=2, color='blue')
+# plt.title('Scree Plot')
+# plt.xlabel('Principal Component')
+# plt.ylabel('Variance Explained')
+plt.show()
+

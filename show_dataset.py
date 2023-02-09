@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont  # Image processing
 from tqdm import tqdm  # Progress bar
 
 
-DATASET = "datasets/dataset_test/"
+DATASET = "datasets/dataset_blabla/"
 
 # Read the csv file containing image names and
 # associated pitch velocity variance measurements
@@ -43,7 +43,7 @@ for line in range(2):
         pbar.update()
         
         # Display the image
-        img_name = os.path.join(DATASET + "zed_node_rgb_image_rect_color",
+        img_name = os.path.join(DATASET + "images",
                                 sorted_frame.iloc[line*5 + col, 0])
         image = Image.open(img_name)
         image = image.resize((320, 180))
@@ -65,7 +65,7 @@ for line in range(2):
         pbar.update()
         
         # Display the image
-        img_name = os.path.join(DATASET + "zed_node_rgb_image_rect_color",
+        img_name = os.path.join(DATASET + "images",
                                 sorted_frame.iloc[nb_observations - 10 + line*5 + col, 0])
         image = Image.open(img_name)
         image = image.resize((320, 180))
