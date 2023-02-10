@@ -28,12 +28,12 @@ class TraversabilityAnalysis:
     # Topics name
     IMAGE_TOPIC = "/zed_node/rgb/image_rect_color"
     ODOM_TOPIC = "/odometry/filtered"
-    IMU_TOPIC = "imu/data"
     
     IMU_SAMPLE_RATE = 43
     
     # Image dimensions
     IMAGE_H, IMAGE_W = 720, 1280
+    # IMAGE_H, IMAGE_W = 360, 640
     
     # Time for which the future trajectory predicted
     T = 3  # seconds
@@ -61,15 +61,18 @@ class TraversabilityAnalysis:
     CAM_TO_ROBOT = frames.inverse_transform_matrix(ROBOT_TO_CAM)
 
     # (Constant) Internal calibration matrix (approx focal length)
-    # K = np.array([[700, 0, 320],
-    #               [0, 700, 180],
-    #               [0, 0, 1]])
-    K = np.array([[700, 0, 640],
-                  [0, 700, 360],
+    K = np.array([[528, 0, 636],
+                  [0, 528, 361],
                   [0, 0, 1]])
+    # K = np.array([[700, 0, 640],
+    #               [0, 700, 360],
+    #               [0, 0, 1]])
+    # K = np.array([[500, 0, 320],
+    #               [0, 500, 180],
+    #               [0, 0, 1]])
     
     # Compute the transform matrix between the world and the robot
-    WORLD_TO_ROBOT = np.eye(4)
+    WORLD_TO_ROBOT = np.eye(4)  # The trajectory is directly generated in the robot frame
 
     # Compute the inverse transform
     ROBOT_TO_WORLD = frames.inverse_transform_matrix(WORLD_TO_ROBOT)
@@ -77,8 +80,8 @@ class TraversabilityAnalysis:
     # Initialize the bridge between ROS and OpenCV images
     bridge = cv_bridge.CvBridge()
     
-    # device = "cpu"
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Load the pre-trained model
     model = models.resnet18().to(device=device)
@@ -87,7 +90,7 @@ class TraversabilityAnalysis:
     model.fc = nn.Linear(model.fc.in_features, 1, device=device)
 
     # Load the fine-tuned weights
-    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_small_bag.params"))
+    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_path_grass_pca_robust.params"))
 
     model.eval()
 
@@ -131,7 +134,7 @@ class TraversabilityAnalysis:
 
         return x
 
-    def predict_trajectory(self, x_init, v, omega, predict_time=3.0, dt=0.1):
+    def predict_trajectory(self, x_init, v, omega, predict_time=3.0, dt=0.05):
         """
         Predict trajectory with an input
         """
@@ -289,8 +292,8 @@ class TraversabilityAnalysis:
         # image = dw.draw_points(image, trajectory_image)
         
         # Compute the cost of the trajectory
-        cost = np.max(costs)
-        print("Cost: ", cost)
+        cost = np.mean(costs)
+        # cost = np.max(costs)
         
         return cost
     
@@ -308,35 +311,60 @@ class TraversabilityAnalysis:
         x_current = [0., 0., 0., self.v, self.omega]
         # x_current = [0., 0., self.theta, self.v, self.omega]
         
-        # for omega in [0]:
-        for omega in [-0.5, -0.3, 0., 0.3, 0.5]:
+        # Set the list of angular velocities
+        omegas = [0.5, 0.3, 0., -0.3, -0.5]
+        # omegas = [0.5]
+        
+        # Define an empty list to store the trajectories cost
+        trajectories_cost = []
+        
+        for omega in omegas:
             # Predict a trajectory given the current state of the robot
             # and velocities
             trajectory = self.predict_trajectory(x_current, v=1., omega=omega, predict_time=self.T, dt=self.dt)
             
             # Project the points expressed in the world frame onto the image plan
             trajectory_image = self.compute_points_image(trajectory)
-            trajectory_image_sampled = self.compute_points_image(trajectory[::8])
+            trajectory_image_sampled = self.compute_points_image(trajectory[::5])
             
             # Remove points or pairs of points which are outside the image
             trajectory_image = self.remove_outside_points(trajectory_image)
             trajectory_image_sampled = self.remove_outside_pairs(trajectory_image_sampled)
             
+            #FIXME: Deal with empty trajectories
             if (trajectory_image_sampled.shape[0] == 0):
                 continue
             # print("3 ", trajectory_image.shape[0])
             
             # Compute the trajectory cost
             trajectory_cost = self.predict_trajectory_cost(trajectory_image_sampled, image)
+            trajectories_cost.append(trajectory_cost)
             
             # Get the color associated with a cost
-            color = self.linear_gradient(trajectory_cost, 0, 30)
-            # color=(255, 0, 0)
+            color = self.linear_gradient(trajectory_cost, -2, 5)
+            # color=(0, 255, 0)
             
             # Display the trajectory on the image
             image_to_display = self.display_trajectory(image_to_display, trajectory_image, color=color)
             
-        print("\n")
+        # print("\n")
+        
+        # List of text positions on the x axis
+        text_x = [210, 410, 610, 810, 1010]
+        
+        for i in range(len(text_x)):
+            
+            color = (255, 0, 0) if trajectories_cost[i] == np.min(trajectories_cost) else (255, 255, 255)
+            
+            # Draw the trajectory cost on the image
+            image_to_display = cv2.putText(image_to_display,
+                                           str(np.round(trajectories_cost[i], 2)),
+                                           org=(text_x[i], 700),
+                                           fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                                           fontScale=1,
+                                           color=color,
+                                           thickness=2)
+            
         
         cv2.imshow("Image", image_to_display)
         cv2.waitKey(2)

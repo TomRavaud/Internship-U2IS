@@ -13,6 +13,7 @@ import os
 
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.manifold import TSNE
 
 import pandas as pd
 
@@ -334,9 +335,7 @@ dataframe = pd.DataFrame(X_scaled, columns=columns)
 pca = PCA(n_components=2)
 X_pc = pca.fit_transform(X_scaled)
 dataframe_pc = pd.DataFrame(X_pc, columns=["pc1", "pc2"])
-
 # print(dataframe_pc)
-
 
 plt.figure()
 
@@ -345,14 +344,13 @@ labels = np.array(labels)
 
 for label in labels_unique:
     indexes_label = labels == label
-    plt.scatter(dataframe_pc.loc[indexes_label, 'pc1'],
-                dataframe_pc.loc[indexes_label, 'pc2'],
+    plt.scatter(dataframe_pc.loc[indexes_label, "pc1"],
+                dataframe_pc.loc[indexes_label, "pc2"],
                 label=label)
 
 plt.legend()
 plt.xlabel("Principal component 1")
 plt.ylabel("Principal component 2")
-plt.show()
 
 # print(X_scaled)
 # print(pca.components_)
@@ -362,5 +360,23 @@ plt.show()
 # plt.title('Scree Plot')
 # plt.xlabel('Principal Component')
 # plt.ylabel('Variance Explained')
-plt.show()
 
+# Apply t-SNE
+tsne = TSNE(random_state=42)
+X_tsne = tsne.fit_transform(X_scaled)
+dataframe_tsne = pd.DataFrame(X_tsne, columns=["feature1", "feature2"])
+# print(dataframe_tsne)
+
+plt.figure()
+
+for label in labels_unique:
+    indexes_label = labels == label
+    plt.scatter(dataframe_tsne.loc[indexes_label, "feature1"],
+                dataframe_tsne.loc[indexes_label, "feature2"],
+                label=label)
+
+plt.legend()
+plt.xlabel("t-SNE feature 1")
+plt.ylabel("t-SNE feature 2")
+
+plt.show()

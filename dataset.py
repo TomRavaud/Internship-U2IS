@@ -9,7 +9,8 @@ from PIL import Image
 from scipy.fft import rfft, rfftfreq
 from scipy.ndimage import uniform_filter1d
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler
+import matplotlib.pyplot as plt
 
 # ROS Python libraries
 import cv_bridge
@@ -58,12 +59,15 @@ class DatasetBuilder():
     CAM_TO_ROBOT = frames.inverse_transform_matrix(ROBOT_TO_CAM)
 
     # (Constant) Internal calibration matrix (approx focal length)
+    K = np.array([[528, 0, 636],
+                  [0, 528, 361],
+                  [0, 0, 1]])
+    # K = np.array([[700, 0, 640],
+    #               [0, 700, 360],
+    #               [0, 0, 1]])
     # K = np.array([[700, 0, 320],
     #               [0, 700, 180],
     #               [0, 0, 1]])
-    K = np.array([[700, 0, 640],
-                  [0, 700, 360],
-                  [0, 0, 1]])
 
     # Initialize the bridge between ROS and OpenCV images
     bridge = cv_bridge.CvBridge()
@@ -86,8 +90,8 @@ class DatasetBuilder():
         except OSError:  # Display a message if it already exists and quit
             print("Existing directory " + dataset_directory)
             print("Aborting to avoid overwriting data\n")
-            # sys.exit(1)  # Stop the execution of the script
-            pass
+            sys.exit(1)  # Stop the execution of the script
+            # pass
         
         # Create a sub-directory to store images
         self.images_directory = dataset_directory + "/images"
@@ -349,7 +353,7 @@ class DatasetBuilder():
     
     def compute_traversal_costs(self):
         
-        # Normalize the dataset
+        # Scale the dataset
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(self.features)
 
@@ -357,7 +361,22 @@ class DatasetBuilder():
         pca = PCA(n_components=1)
         costs = pca.fit_transform(features_scaled)
         
-        return costs
+        plt.matshow(pca.components_, cmap="viridis")
+        plt.colorbar()
+        plt.xticks(range(12),
+                   ["variance (z acceleration)", "energy (z acceleration)", "spectral centroid (z acceleration)", "spectral spread (z acceleration)",
+                    "variance (roll rate)", "energy (roll rate)", "spectral centroid (roll rate)", "spectral spread (roll rate)",
+                    "variance (pitch rate)", "energy (pitch rate)", "spectral centroid (pitch rate)", "spectral spread (pitch rate)"],
+                   rotation=60,
+                   ha="left")
+        plt.xlabel("Feature")
+        plt.ylabel("Principal component 1")
+        plt.show()
+        
+        robust_scaler = RobustScaler()
+        normalized_costs = robust_scaler.fit_transform(costs)
+        
+        return normalized_costs
 
     def write_traversal_costs(self):
         
@@ -391,10 +410,9 @@ class DatasetBuilder():
 # The "__main__" flag acts as a shield to avoid these lines to be executed if
 # this file is imported in another one
 if __name__ == "__main__":
-    dataset = DatasetBuilder(name="blabla")
+    dataset = DatasetBuilder(name="to_delete")
     
     dataset.write_images_and_compute_features(
-        file="bagfiles/raw_bagfiles/tom_road.bag")
+        file="bagfiles/raw_bagfiles/tom_path_grass.bag")
 
     dataset.write_traversal_costs()
-
