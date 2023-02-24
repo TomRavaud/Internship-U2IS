@@ -12,7 +12,7 @@ import cv_bridge
 import cv2
 
 # Name of the bag file
-FILE = "bagfiles/raw_bagfiles/tom_path.bag"
+FILE = "bagfiles/raw_bagfiles/tom_6.bag"
 # FILE = "bagfiles/sample_bag.bag"
 # Name of the image topic
 # IMAGE_TOPIC = "/zed_node/depth/depth_registered"

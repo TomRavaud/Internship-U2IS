@@ -99,10 +99,10 @@ class TraversabilityAnalysis:
     model = models.resnet18().to(device=device)
 
     # Replace the last layer by a fully-connected one with 1 output
-    model.fc = nn.Linear(model.fc.in_features, 1, device=device)
+    model.fc = nn.Linear(model.fc.in_features, 10, device=device)
     
     # Load the fine-tuned weights
-    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_3+8bags_3var3sc_transforms.params"))
+    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_3+8bags_3var3sc_classification_kmeans_100epochs.params"))
 
     model.eval()
 
@@ -120,6 +120,12 @@ class TraversabilityAnalysis:
             std=[0.229, 0.224, 0.225]
         ),
     ])
+    
+    # Midpoints of the bins
+    bin_midpoints = torch.tensor([0.43156512, 0.98983318, 1.19973744, 1.35943443, 1.51740755,
+                                  1.67225206, 1.80821536, 1.94262708, 2.12798895, 2.6080252], device=device)
+    # Add a dimension to the tensor
+    bin_midpoints = bin_midpoints[:, None]
 
     
     def __init__(self):
@@ -272,7 +278,7 @@ class TraversabilityAnalysis:
             # Add a dimension of size one (to create a batch of size one)
             rectangle = torch.unsqueeze(rectangle, dim=0)
             rectangle = rectangle.to(self.device)
-            cost = model(rectangle).item()
+            cost = torch.argmax(nn.Softmax()(model(rectangle))).item()
         
         return cost
     
@@ -307,7 +313,12 @@ class TraversabilityAnalysis:
             
             rectangles_batch = rectangles_batch.to(self.device)
             
-            costs = model(rectangles_batch)
+            # Compute the expected traversal cost
+            costs = torch.matmul(nn.Softmax()(model(rectangles_batch)), self.bin_midpoints)
+            
+            # Get the class with the highest probability
+            # costs = torch.argmax(nn.Softmax()(model(rectangles_batch)), dim=1)
+            
             print("Prediction time: ", time_pred_stop - time_pred_start)
         
         return costs
@@ -462,8 +473,8 @@ class TraversabilityAnalysis:
             trajectory_image = self.remove_outside_points(trajectory_image)
             
             # Compute the color associated with the cost
-            color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 2.5)  # TODO:
-            # color_trajectory = self.linear_gradient(trajectories_costs[i], 2.5, 0)  # TODO:
+            color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 2.5)
+            # color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 9)
             
             # Display the trajectory on the image
             image_to_display = self.display_trajectory(image_to_display, trajectory_image, color=color_trajectory)

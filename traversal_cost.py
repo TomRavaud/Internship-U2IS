@@ -257,7 +257,7 @@ plt.ylabel("Amplitude ($rad/s$)")
 plt.show()
 
 
-X = np.zeros((59, 12))
+X = np.zeros((59, 3))
 labels = []
 
 directory = "samples/subsamples"
@@ -278,7 +278,7 @@ for filename in os.listdir(directory):
         measurements_mean = uniform_filter1d(measurements, size=5)
         
         # Compute the variance
-        X[index_sample, i*4] = np.var(measurements_mean)
+        # X[index_sample, i*2] = np.var(measurements_mean)
 
         # Apply windowing because the signal is not periodic
         hanning_window = np.hanning(50)
@@ -289,14 +289,14 @@ for filename in os.listdir(directory):
         magnitudes = np.abs(measurements_mean_windowing_fourier)
         frequencies = rfftfreq(50, 1/IMU_SAMPLE_RATE)
         
-        energy = spectral_energy(magnitudes)
-        X[index_sample, i*4+1] = energy
+        # energy = spectral_energy(magnitudes)
+        # X[index_sample, i*4+1] = energy
         
         sc = spectral_centroid(magnitudes, frequencies)
-        X[index_sample, i*4+2] = sc
+        X[index_sample, i] = sc
 
-        ss = spectral_spread(magnitudes, frequencies, sc)
-        X[index_sample, i*4+3] = ss
+        # ss = spectral_spread(magnitudes, frequencies, sc)
+        # X[index_sample, i*3+2] = ss
     
     index_sample += 1
     
@@ -308,10 +308,10 @@ for filename in os.listdir(directory):
 
 fig = plt.figure()
 for i in range(len(labels)):
-    plt.plot(X[i, 11], [0], "o", label=labels[i], markersize=10)
+    plt.plot(X[i, 0], [0], "o", label=labels[i], markersize=10)
 # plt.plot(X[:, 0], np.zeros_like(X[:, 0]), "r+")
 plt.legend()
-plt.title("Pitch rate spectral spread")
+plt.title("Vertical acceleration variance")
 
 ax = fig.gca()
 
@@ -328,7 +328,8 @@ scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
 # Convert the dataset to a pandas DataFrame
-columns = ["var z", "en z", "sc z", "ss z", "var r", "en r", "sc r", "ss r", "var p", "en p", "sc p", "ss p"]
+columns = ["sc r", "var p", "sc p"]
+# columns = ["var z", "sc z", "ss z", "var r", "sc r", "ss r", "var p", "sc p", "ss p"]
 dataframe = pd.DataFrame(X_scaled, columns=columns)
 
 # Apply PCA

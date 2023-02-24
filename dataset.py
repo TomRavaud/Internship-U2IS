@@ -9,8 +9,12 @@ from PIL import Image
 from scipy.fft import rfft, rfftfreq
 from scipy.ndimage import uniform_filter1d
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler, OneHotEncoder, KBinsDiscretizer
+from sklearn.model_selection import train_test_split
+import shutil
+import pandas as pd
 import matplotlib.pyplot as plt
+plt.rcParams['text.usetex'] = True  # Render Matplotlib text with Tex
 
 # ROS Python libraries
 import cv_bridge
@@ -29,6 +33,7 @@ class DatasetBuilder():
     # Topics name
     IMAGE_TOPIC = "/zed_node/rgb/image_rect_color"
     ODOM_TOPIC = "/odometry/filtered"
+    WHEELS_ODOM_TOPIC = "/husky_velocity_controller/odom"
     IMU_TOPIC = "imu/data"
     
     IMU_SAMPLE_RATE = 43
@@ -59,8 +64,8 @@ class DatasetBuilder():
     CAM_TO_ROBOT = frames.inverse_transform_matrix(ROBOT_TO_CAM)
 
     # (Constant) Internal calibration matrix (approx focal length)
-    K = np.array([[528, 0, 636],
-                  [0, 528, 361],
+    K = np.array([[534, 0, 634],
+                  [0, 534, 363],
                   [0, 0, 1]])
     # K = np.array([[700, 0, 640],
     #               [0, 700, 360],
@@ -72,7 +77,7 @@ class DatasetBuilder():
     # Initialize the bridge between ROS and OpenCV images
     bridge = cv_bridge.CvBridge()
 
-    features = np.zeros((2000, 12))
+    features = np.zeros((10000, 12))
     
     
     def __init__(self, name):
@@ -81,20 +86,20 @@ class DatasetBuilder():
         directory = os.path.abspath(os.getcwd())
 
         # Set the name of the directory which will store the dataset
-        dataset_directory = directory + "/datasets/dataset_" + name
+        self.dataset_directory = directory + "/datasets/dataset_" + name
 
         try:  # A new directory is created if it does not exist yet
-            os.mkdir(dataset_directory)
-            print(dataset_directory + " folder created\n")
+            os.mkdir(self.dataset_directory)
+            print(self.dataset_directory + " folder created\n")
 
         except OSError:  # Display a message if it already exists and quit
-            print("Existing directory " + dataset_directory)
+            print("Existing directory " + self.dataset_directory)
             print("Aborting to avoid overwriting data\n")
             sys.exit(1)  # Stop the execution of the script
             # pass
         
         # Create a sub-directory to store images
-        self.images_directory = dataset_directory + "/images"
+        self.images_directory = self.dataset_directory + "/images"
 
         # Create a directory if it does not exist yet
         try:
@@ -104,204 +109,208 @@ class DatasetBuilder():
             pass
         
         # Create a csv file to store the traversal costs
-        self.csv_name = dataset_directory + "/traversal_costs.csv"
+        self.csv_name = self.dataset_directory + "/traversal_costs.csv"
     
-    def write_images_and_compute_features(self, file):
-        
-        print("Reading file : " + file)
-
-        # Open the bag file
-        bag = rosbag.Bag(file)
+    def write_images_and_compute_features(self, files):
         
         index_image = 0
         
-        # Go through the image topic
-        for _, msg_image, t_image in tqdm(
-            bag.read_messages(topics=[self.IMAGE_TOPIC]),
-            total=bag.get_message_count(self.IMAGE_TOPIC)):
+        for file in files:
+            
+            print("Reading file: " + file)
 
-            # Convert the current ROS image to the OpenCV type
-            image = self.bridge.imgmsg_to_cv2(msg_image,
-                                              desired_encoding="passthrough")
+            # Open the bag file
+            bag = rosbag.Bag(file)
+            
 
-            # Get the first odometry message received after the image
-            _, msg_odom, t_odom = next(iter(bag.read_messages(
-                topics=[self.ODOM_TOPIC],
-                start_time=t_image)))
+            # Go through the image topic
+            for _, msg_image, t_image in tqdm(
+                bag.read_messages(topics=[self.IMAGE_TOPIC]),
+                total=bag.get_message_count(self.IMAGE_TOPIC)):
 
-            # Compute the transform matrix between the world and the robot
-            WORLD_TO_ROBOT = frames.pose_to_transform_matrix(
-                msg_odom.pose.pose)
-            # Compute the inverse transform
-            ROBOT_TO_WORLD = frames.inverse_transform_matrix(WORLD_TO_ROBOT)
+                # Convert the current ROS image to the OpenCV type
+                image = self.bridge.imgmsg_to_cv2(msg_image,
+                                                  desired_encoding="passthrough")
 
-            # Initialize an array to store the previous front wheels
-            # coordinates in the image
-            points_image_old = 1e5*np.ones((2, 2))
+                # Get the first odometry message received after the image
+                _, msg_odom, t_odom = next(iter(bag.read_messages(
+                    topics=[self.ODOM_TOPIC],
+                    start_time=t_image)))
 
-            # Define a variable to store the previous timestamp
-            t_odom_old = None
+                # Compute the transform matrix between the world and the robot
+                WORLD_TO_ROBOT = frames.pose_to_transform_matrix(
+                    msg_odom.pose.pose)
+                # Compute the inverse transform
+                ROBOT_TO_WORLD = frames.inverse_transform_matrix(WORLD_TO_ROBOT)
 
-            # Read the odometry measurement for T second(s)
-            for i, (_, msg_odom, t_odom) in enumerate(bag.read_messages(
-                topics=[self.ODOM_TOPIC],
-                start_time=t_odom,
-                end_time=t_odom+rospy.Duration(self.T))):
+                # Initialize an array to store the previous front wheels
+                # coordinates in the image
+                points_image_old = 1e5*np.ones((2, 2))
 
-                # Keep only an odometry measurement every dt second(s)
-                if i % self.div == 0:
+                # Define a variable to store the previous timestamp
+                t_odom_old = None
 
-                    # Store the 2D coordinates of the robot position in
-                    # the world frame
-                    point_world = np.array([[msg_odom.pose.pose.position.x,
-                                             msg_odom.pose.pose.position.y,
-                                             msg_odom.pose.pose.position.z]])
+                # Read the odometry measurement for T second(s)
+                for i, (_, msg_odom, t_odom) in enumerate(bag.read_messages(
+                    topics=[self.ODOM_TOPIC],
+                    start_time=t_odom,
+                    end_time=t_odom+rospy.Duration(self.T))):
 
-                    # Make the orientation quaternion a numpy array
-                    q = np.array([msg_odom.pose.pose.orientation.x,
-                                  msg_odom.pose.pose.orientation.y,
-                                  msg_odom.pose.pose.orientation.z,
-                                  msg_odom.pose.pose.orientation.w])
+                    # Keep only an odometry measurement every dt second(s)
+                    if i % self.div == 0:
 
-                    # Convert the quaternion into Euler angles
-                    theta = tf.transformations.euler_from_quaternion(q)[2]
+                        # Store the 2D coordinates of the robot position in
+                        # the world frame
+                        point_world = np.array([[msg_odom.pose.pose.position.x,
+                                                 msg_odom.pose.pose.position.y,
+                                                 msg_odom.pose.pose.position.z]])
 
-                    # Create arrays to store left and write front
-                    # wheels positions
-                    point_left_world = np.copy(point_world)
-                    point_right_world = np.copy(point_world)
+                        # Make the orientation quaternion a numpy array
+                        q = np.array([msg_odom.pose.pose.orientation.x,
+                                      msg_odom.pose.pose.orientation.y,
+                                      msg_odom.pose.pose.orientation.z,
+                                      msg_odom.pose.pose.orientation.w])
 
-                    # Compute the distances between the wheels and
-                    # the robot's origin
-                    delta_X = self.L*np.sin(theta)/2
-                    delta_Y = self.L*np.cos(theta)/2
+                        # Convert the quaternion into Euler angles
+                        theta = tf.transformations.euler_from_quaternion(q)[2]
 
-                    # Compute the positions of the outer points of the two
-                    # front wheels
-                    point_left_world[:, 0] -= delta_X
-                    point_left_world[:, 1] += delta_Y
-                    point_right_world[:, 0] += delta_X
-                    point_right_world[:, 1] -= delta_Y
+                        # Create arrays to store left and write front
+                        # wheels positions
+                        point_left_world = np.copy(point_world)
+                        point_right_world = np.copy(point_world)
 
-                    # Gather front wheels outer points coordinates in
-                    # a single array
-                    points_world = np.concatenate([point_left_world,
-                                                   point_right_world])
+                        # Compute the distances between the wheels and
+                        # the robot's origin
+                        delta_X = self.L*np.sin(theta)/2
+                        delta_Y = self.L*np.cos(theta)/2
 
-                    # Compute the points coordinates in the robot frame
-                    points_robot = frames.apply_rigid_motion(points_world,
-                                                      ROBOT_TO_WORLD)
+                        # Compute the positions of the outer points of the two
+                        # front wheels
+                        point_left_world[:, 0] -= delta_X
+                        point_left_world[:, 1] += delta_Y
+                        point_right_world[:, 0] += delta_X
+                        point_right_world[:, 1] -= delta_Y
 
-                    # Compute the points coordinates in the camera frame
-                    points_camera = frames.apply_rigid_motion(
-                        points_robot,
-                        self.CAM_TO_ROBOT)
+                        # Gather front wheels outer points coordinates in
+                        # a single array
+                        points_world = np.concatenate([point_left_world,
+                                                       point_right_world])
 
-                    # Compute the points coordinates in the image plan
-                    points_image = frames.camera_frame_to_image(points_camera,
-                                                                self.K)
+                        # Compute the points coordinates in the robot frame
+                        points_robot = frames.apply_rigid_motion(points_world,
+                                                          ROBOT_TO_WORLD)
 
-                    # Draw the points on the image
-                    # image = draw_points(image, points_image)
+                        # Compute the points coordinates in the camera frame
+                        points_camera = frames.apply_rigid_motion(
+                            points_robot,
+                            self.CAM_TO_ROBOT)
 
-                    # Compute the maximum and minimum coordinates on the
-                    # y axis of the
-                    # image plan
-                    max_y = np.int32(np.max(points_image_old, axis=0)[1])
-                    min_y = np.int32(np.min(points_image, axis=0)[1])
+                        # Compute the points coordinates in the image plan
+                        points_image = frames.camera_frame_to_image(points_camera,
+                                                                    self.K)
 
+                        # Draw the points on the image
+                        # image = dw.draw_points(image, points_image)
 
-                    # Process the points only if they are visible in the image
-                    if max_y < image.shape[0] and min_y > 0:
-
-                        # Create lists to store all the roll, pitch angles and
-                        # velocities measurement within the dt second(s)
-                        # interval
-                        # roll_angle_values = []
-                        # pitch_angle_values = []
-                        roll_velocity_values = []
-                        pitch_velocity_values = []
-
-                        z_acceleration_values = []
-
-                        # Read the IMU measurements within the dt second(s)
-                        # interval
-                        for _, msg_imu, t_imu in bag.read_messages(
-                            topics=[self.IMU_TOPIC],
-                            start_time=t_odom_old,
-                            end_time=t_odom):
-
-                            # Append angles and angular velocities to the
-                            # previously created lists
-                            # roll_angle_values.append(
-                            #     msg_imu.orientation.x)
-                            # pitch_angle_values.append(
-                            #     msg_imu.orientation.y)
-                            roll_velocity_values.append(
-                                msg_imu.angular_velocity.x)
-                            pitch_velocity_values.append(
-                                msg_imu.angular_velocity.y)
-                            z_acceleration_values.append(
-                                msg_imu.linear_acceleration.z - 9.81)
-
-                        # Compute max and min coordinates of the points in
-                        # the image along the x axis
-                        min_x = np.int32(np.min([points_image_old[:, 0],
-                                             points_image[:, 0]]))
-                        max_x = np.int32(np.max([points_image_old[:, 0],
-                                             points_image[:, 0]]))
-
-                        # Draw a rectangle in the image to visualize the region
-                        # of interest
-                        # image = draw_quadrilateral(image,
-                        #                            np.array([[min_x, max_y],
-                        #                                      [min_x, min_y],
-                        #                                      [max_x, min_y],
-                        #                                      [max_x, max_y]]),
-                        #                            color=(255, 0, 0))
-
-                        # Extract the rectangular region of interest from
-                        # the original image
-                        image_to_save = image[min_y:max_y, min_x:max_x]
+                        # Compute the maximum and minimum coordinates on the
+                        # y axis of the
+                        # image plan
+                        max_y = np.int32(np.max(points_image_old, axis=0)[1])
+                        min_y = np.int32(np.min(points_image, axis=0)[1])
 
 
-                        # Keep only rectangles which surface is greater than a
-                        # given value
-                        if image_to_save.shape[0]*image_to_save.shape[1] >= 10000 and \
-                        image_to_save.shape[1]/image_to_save.shape[0] <= 5:
-                            
-                            self.features[index_image] = self.compute_features(
-                                z_acceleration_values,
-                                roll_velocity_values,
-                                pitch_velocity_values)
+                        # Process the points only if they are visible in the image
+                        if max_y < image.shape[0] and min_y > 0:
 
-                            # Convert the image from BGR to RGB
-                            image_to_save = cv2.cvtColor(image_to_save,
-                                                         cv2.COLOR_BGR2RGB)
+                            # Create lists to store all the roll, pitch angles and
+                            # velocities measurement within the dt second(s)
+                            # interval
+                            # roll_angle_values = []
+                            # pitch_angle_values = []
+                            roll_velocity_values = []
+                            pitch_velocity_values = []
 
-                            # Make a PIL image
-                            image_to_save = Image.fromarray(image_to_save)
+                            z_acceleration_values = []
 
-                            # Give the image a name
-                            image_name = f"{index_image:05d}.png"
+                            # Read the IMU measurements within the dt second(s)
+                            # interval
+                            for _, msg_imu, t_imu in bag.read_messages(
+                                topics=[self.IMU_TOPIC],
+                                start_time=t_odom_old,
+                                end_time=t_odom):
 
-                            # Save the image in the correct directory
-                            image_to_save.save(self.images_directory + "/" + image_name, "PNG")  #TODO: here
+                                # Append angles and angular velocities to the
+                                # previously created lists
+                                # roll_angle_values.append(
+                                #     msg_imu.orientation.x)
+                                # pitch_angle_values.append(
+                                #     msg_imu.orientation.y)
+                                roll_velocity_values.append(
+                                    msg_imu.angular_velocity.x)
+                                pitch_velocity_values.append(
+                                    msg_imu.angular_velocity.y)
+                                z_acceleration_values.append(
+                                    msg_imu.linear_acceleration.z - 9.81)
 
-                            index_image += 1
+                            # Compute max and min coordinates of the points in
+                            # the image along the x axis
+                            min_x = np.int32(np.min([points_image_old[:, 0],
+                                                 points_image[:, 0]]))
+                            max_x = np.int32(np.max([points_image_old[:, 0],
+                                                 points_image[:, 0]]))
 
-                            # Display the image
-                            # cv2.imshow("Image", image)
-                            # cv2.waitKey()
+                            # Draw a rectangle in the image to visualize the region
+                            # of interest
+                            # image = dw.draw_quadrilateral(image,
+                            #                            np.array([[min_x, max_y],
+                            #                                      [min_x, min_y],
+                            #                                      [max_x, min_y],
+                            #                                      [max_x, max_y]]),
+                            #                            color=(255, 0, 0))
 
-                    # Update front wheels outer points image coordinates and timestamp
-                    points_image_old = points_image
-                    t_odom_old = t_odom
+                            # Extract the rectangular region of interest from
+                            # the original image
+                            image_to_save = image[min_y:max_y, min_x:max_x]
 
 
-        # Close the bag file
-        bag.close()
+                            # Keep only rectangles which surface is greater than a
+                            # given value
+                            if image_to_save.shape[0]*image_to_save.shape[1] >= 10000 and \
+                            image_to_save.shape[1]/image_to_save.shape[0] <= 5:
+
+                                self.features[index_image] = self.compute_features(
+                                    z_acceleration_values,
+                                    roll_velocity_values,
+                                    pitch_velocity_values)
+
+                                # Convert the image from BGR to RGB
+                                image_to_save = cv2.cvtColor(image_to_save,
+                                                             cv2.COLOR_BGR2RGB)
+
+                                # Make a PIL image
+                                image_to_save = Image.fromarray(image_to_save)
+
+                                # Give the image a name
+                                image_name = f"{index_image:05d}.png"
+
+                                # Save the image in the correct directory
+                                image_to_save.save(self.images_directory + "/" + image_name, "PNG")
+
+                                index_image += 1
+
+                                # Display the image
+                                # cv2.imshow("Image", image)
+                                # cv2.waitKey()
+
+                        # Update front wheels outer points image coordinates and timestamp
+                        points_image_old = points_image
+                        t_odom_old = t_odom
+
+
+            # Close the bag file
+            bag.close()
         
+        # Keep only the rows that are not filled with zeros
         self.features = self.features[np.any(self.features, axis=1)]
         
     def compute_features(self,
@@ -353,6 +362,11 @@ class DatasetBuilder():
     
     def compute_traversal_costs(self):
         
+        # costs = self.features[:, 8, np.newaxis]
+        # self.features = self.features[:, [2, 6, 10]]
+        # self.features = self.features[:, [0, 4, 8]]
+        self.features = self.features[:, [0, 2, 4, 6, 8, 10]]
+        
         # Scale the dataset
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(self.features)
@@ -361,22 +375,66 @@ class DatasetBuilder():
         pca = PCA(n_components=1)
         costs = pca.fit_transform(features_scaled)
         
-        plt.matshow(pca.components_, cmap="viridis")
-        plt.colorbar()
-        plt.xticks(range(12),
-                   ["variance (z acceleration)", "energy (z acceleration)", "spectral centroid (z acceleration)", "spectral spread (z acceleration)",
-                    "variance (roll rate)", "energy (roll rate)", "spectral centroid (roll rate)", "spectral spread (roll rate)",
-                    "variance (pitch rate)", "energy (pitch rate)", "spectral centroid (pitch rate)", "spectral spread (pitch rate)"],
-                   rotation=60,
-                   ha="left")
-        plt.xlabel("Feature")
-        plt.ylabel("Principal component 1")
+        # Display the coefficients of the first principal component
+        # plt.matshow(pca.components_, cmap="viridis")
+        # plt.colorbar()
+        # plt.xticks(range(12),
+        #            ["variance (z acceleration)", "energy (z acceleration)",
+        #             "spectral centroid (z acceleration)",
+        #             "spectral spread (z acceleration)",
+        #             "variance (roll rate)", "energy (roll rate)",
+        #             "spectral centroid (roll rate)",
+        #             "spectral spread (roll rate)",
+        #             "variance (pitch rate)", "energy (pitch rate)",
+        #             "spectral centroid (pitch rate)",
+        #             "spectral spread (pitch rate)"],
+        #            rotation=60,
+        #            ha="left")
+        # plt.xlabel("Feature")
+        # plt.ylabel("Principal component 1")
+        # plt.title("First principal component coefficients")
+        # plt.show()
+        
+        # robust_scaler = RobustScaler()
+        # normalized_costs = robust_scaler.fit_transform(costs)
+        
+        # Transform the costs to make the distribution closer
+        # to a Gaussian distribution
+        normalized_costs = np.log(costs - np.min(costs) + 1)
+        # normalized_costs = costs
+        
+        # Create uniform bins
+        # nb_bins = 20
+        # bins = np.linspace(0, np.max(normalized_costs) + 1e-2, nb_bins+1)
+        
+        # Distribution of the dataset
+        # plt.hist(normalized_costs, bins)
+        
+        # Apply uniform binning (classes: from 0 to nb_bins - 1)
+        # digitized_costs = np.digitize(normalized_costs, bins) - 1
+        
+        # # Apply one-hot encoding
+        # one_hot_encoder = OneHotEncoder()
+        # one_hot_costs = one_hot_encoder.fit_transform(digitized_costs).toarray()
+        
+        # Apply K-means binning
+        nb_bins = 10  # Number of bins
+        discretizer = KBinsDiscretizer(n_bins=nb_bins, encode="ordinal", strategy="kmeans")
+        digitized_costs = np.int32(discretizer.fit_transform(normalized_costs))
+        
+        # Get the edges and midpoints of the bins
+        bins_edges = discretizer.bin_edges_[0]
+        bins_midpoints = (bins_edges[:-1] + bins_edges[1:])/2
+        # print(f"Bins midpoints: {bin_midpoints}\n"
+        
+        # Save the midpoints in the dataset directory
+        np.save(self.dataset_directory+"/bins_midpoints.npy", bins_midpoints)
+        
+        plt.hist(normalized_costs, bins_edges, lw=1, ec="magenta", fc="blue")
+        plt.title("Traversal cost binning")
         plt.show()
         
-        robust_scaler = RobustScaler()
-        normalized_costs = robust_scaler.fit_transform(costs)
-        
-        return normalized_costs
+        return normalized_costs, digitized_costs
 
     def write_traversal_costs(self):
         
@@ -387,10 +445,10 @@ class DatasetBuilder():
         file_costs_writer = csv.writer(file_costs, delimiter=",")
 
         # Write the first row (columns title)
-        headers = ["image_id", "traversal_cost"]
+        headers = ["image_id", "traversal_cost", "traversability_label"]
         file_costs_writer.writerow(headers)
         
-        costs = self.compute_traversal_costs()
+        costs, labels = self.compute_traversal_costs()
         
         for i in range(costs.shape[0]):
             
@@ -398,21 +456,79 @@ class DatasetBuilder():
             image_name = f"{i:05d}.png"
             
             cost = costs[i, 0]
+            label = labels[i, 0]
 
             # Add the image index and the associated score in the csv file
-            file_costs_writer.writerow([image_name, cost])
+            file_costs_writer.writerow([image_name, cost, label])
 
         # Close the csv file
         file_costs.close()
 
+    def create_train_test_splits(self):
+        # Create a sub-directory to store train images
+        train_directory = self.dataset_directory + "/images_train"
+        os.mkdir(train_directory)
+        print(train_directory + " folder created\n")
+        
+        # Create a sub-directory to store test images
+        test_directory = self.dataset_directory + "/images_test"
+        os.mkdir(test_directory)
+        print(test_directory + " folder created\n")
+        
+        train_size = 0.85  # 85% of the data will be used for training
+        
+        # Read the CSV file into a Pandas dataframe
+        dataframe = pd.read_csv(self.csv_name)
+
+        # Split the dataset randomly into training and testing sets
+        dataframe_train, dataframe_test = train_test_split(dataframe, train_size=train_size, stratify=dataframe["traversability_label"])
+        
+        # Count the number of samples per class
+        train_distribution = dataframe_train["traversability_label"].value_counts()
+        test_distribution = dataframe_test["traversability_label"].value_counts()
+        
+        plt.bar(train_distribution.index, train_distribution.values, fc="blue", label="train")
+        plt.bar(test_distribution.index, test_distribution.values, fc="orange", label="test")
+        plt.legend()
+        plt.title("Train and test sets distribution")
+        plt.show()
+
+        # Iterate over each row of the training set and copy the images to the training directory
+        for _, row in dataframe_train.iterrows():
+            image_file = os.path.join(self.images_directory, row["image_id"])
+            shutil.copy(image_file, train_directory)
+
+        # Iterate over each row of the testing set and copy the images to the testing directory
+        for _, row in dataframe_test.iterrows():
+            image_file = os.path.join(self.images_directory, row["image_id"])
+            shutil.copy(image_file, test_directory)
+        
+        # Store the train and test splits in csv files
+        dataframe_train.to_csv(self.dataset_directory + "/traversal_costs_train.csv", index=False)
+        dataframe_test.to_csv(self.dataset_directory + "/traversal_costs_test.csv", index=False)
+        
 
 # Main program
 # The "__main__" flag acts as a shield to avoid these lines to be executed if
 # this file is imported in another one
 if __name__ == "__main__":
-    dataset = DatasetBuilder(name="to_delete")
+    dataset = DatasetBuilder(name="3+8bags_3var3sc_regression_classification_kmeans_split")
     
     dataset.write_images_and_compute_features(
-        file="bagfiles/raw_bagfiles/tom_path_grass.bag")
+        files=[
+            "bagfiles/raw_bagfiles/tom_1.bag",
+            "bagfiles/raw_bagfiles/tom_2.bag",
+            "bagfiles/raw_bagfiles/tom_3.bag",
+            "bagfiles/raw_bagfiles/tom_4.bag",
+            "bagfiles/raw_bagfiles/tom_5.bag",
+            "bagfiles/raw_bagfiles/tom_6.bag",
+            "bagfiles/raw_bagfiles/tom_7.bag",
+            "bagfiles/raw_bagfiles/tom_8.bag",
+            "bagfiles/raw_bagfiles/tom_path_grass.bag",
+            "bagfiles/raw_bagfiles/tom_grass_wood.bag",
+            "bagfiles/raw_bagfiles/tom_road.bag",
+        ])
 
     dataset.write_traversal_costs()
+    
+    dataset.create_train_test_splits()

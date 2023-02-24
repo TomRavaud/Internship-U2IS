@@ -142,7 +142,7 @@ def draw_quadrilateral(image, corners, color=(0, 0, 255)):
 # Name of the bag file
 # FILE = "bagfiles/sample_bag.bag"
 # FILE = "bagfiles/raw_bagfiles/tom_road.bag"
-FILE = "bagfiles/raw_bagfiles/tom_path.bag"
+FILE = "bagfiles/raw_bagfiles/tom_6.bag"
 
 # Name of the odometry topic
 ODOM_TOPIC = "/odometry/filtered"
@@ -156,6 +156,8 @@ ROBOT_TO_CAM = np.array([[0, np.sin(alpha), np.cos(alpha), 0.084],
                          [-1, 0, 0, 0.060],
                          [0, -np.cos(alpha), np.sin(alpha), 0.774],
                          [0, 0, 0, 1]])
+
+
 # ROBOT_TO_CAM = np.array([[0, -1, 0, 0.060],
 #                          [-np.sin(alpha), 0, -np.cos(alpha), 0.774],
 #                          [np.cos(alpha), 0, -np.sin(alpha), -0.084],
@@ -168,8 +170,8 @@ CAM_TO_ROBOT = inverse_transform_matrix(ROBOT_TO_CAM)
 
 
 # Internal calibration matrix (approx focal length)
-K = np.array([[700, 0, 640],
-              [0, 700, 360],
+K = np.array([[534, 0, 634],
+              [0, 534, 363],
               [0, 0, 1]])
 
 # Initialize the bridge between ROS and OpenCV images
@@ -187,8 +189,7 @@ transform = False
 
 # Number of recorded positions of the robot after the first
 # image has been taken
-nb_points = 1395
-# nb_points = 2765
+nb_points = 10000
 
 # Create an array to contain the successives coordinates of the
 # robot in the world frame
@@ -240,7 +241,7 @@ for _, msg_odom, t_odom in bag.read_messages(topics=[ODOM_TOPIC]):
         # t.append(t_odom.to_sec())
         
         i += 1
-# print(i)
+print(i)
 
 # Close the bag file
 bag.close()
@@ -294,8 +295,8 @@ plt.show()
 # Down sample the points
 # points_left_world = points_left_world[4:200:20]
 # points_right_world = points_right_world[4:200:20]
-points_left_world = points_left_world[60:200:20]
-points_right_world = points_right_world[60:200:20]
+# points_left_world = points_left_world[60:200:2]
+# points_right_world = points_right_world[60:200:20]
 points_right_world = points_right_world[::-1]
 points_world = np.concatenate([points_left_world, points_right_world])
 # points_world = np.concatenate([points_world, points_left_world, points_right_world])
@@ -304,9 +305,12 @@ points_world = np.concatenate([points_left_world, points_right_world])
 points_robot = apply_rigid_motion(points_world,
                                   ROBOT_TO_WORLD)
 
+
 # Compute the points coordinates in the camera frame
 points_camera = apply_rigid_motion(points_robot,
                                    CAM_TO_ROBOT)
+print(points_camera)
+
 
 # Compute the points coordinates in the image plan
 points_image = camera_frame_to_image(points_camera,

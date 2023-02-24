@@ -62,8 +62,8 @@ class TraversabilityAnalysis:
     CAM_TO_ROBOT = frames.inverse_transform_matrix(ROBOT_TO_CAM)
 
     # (Constant) Internal calibration matrix (approx focal length)
-    K = np.array([[534, 0, 634],
-                  [0, 534, 363],
+    K = np.array([[528, 0, 636],
+                  [0, 528, 361],
                   [0, 0, 1]])
     # K = np.array([[700, 0, 640],
     #               [0, 700, 360],
@@ -71,16 +71,6 @@ class TraversabilityAnalysis:
     # K = np.array([[500, 0, 320],
     #               [0, 500, 180],
     #               [0, 0, 1]])
-    
-    # Distorsion coefficients
-    # [k1, k2, p1, p2, k3]
-    distorsion = np.array([-0.041, 0.010, 0.000, 0.000, -0.005])
-    
-    # Compute the new calibration matrix when distorsion is removed
-    new_K, roi = cv2.getOptimalNewCameraMatrix(K, distorsion, (IMAGE_W,IMAGE_H), 1, (IMAGE_W,IMAGE_H))
-    x_cropped, y_cropped, w_cropped, h_cropped = roi
-    print(new_K)
-    print(roi)
     
     # Compute the transform matrix between the world and the robot
     WORLD_TO_ROBOT = np.eye(4)  # The trajectory is directly generated in the robot frame
@@ -98,13 +88,21 @@ class TraversabilityAnalysis:
     # Load the pre-trained model
     model = models.resnet18().to(device=device)
 
-    # Replace the last layer by a fully-connected one with 1 output
-    model.fc = nn.Linear(model.fc.in_features, 1, device=device)
+    # Replace the last layer by a fully-connected one with 1 output and add dropout
+    model.fc = nn.Sequential(nn.Dropout(p=0.5),
+                             nn.Linear(model.fc.in_features, 1, device=device)
+    )
     
     # Load the fine-tuned weights
-    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_3+8bags_3var3sc_transforms.params"))
+    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_path_grass_pca_robust_dropout.params"))
 
+    # Set the model to evaluation mode (no dropout, no batch normalization)
     model.eval()
+    
+    # Set the dropout layer active whatever the mode chosen
+    for m in model.modules():
+        if m.__class__.__name__.startswith('Dropout'):
+            m.train()
 
     transform = transforms.Compose([ 
         # transforms.Resize(100),
@@ -256,7 +254,7 @@ class TraversabilityAnalysis:
 
         return (0, green, red)
     
-    def predict_rectangle_cost(self, rectangle, model, transform):
+    def predict_rectangle_costs(self, rectangle, model, transform, nb_predictions=3):
         
         # Turn off gradients computation
         with torch.no_grad():
@@ -272,47 +270,15 @@ class TraversabilityAnalysis:
             # Add a dimension of size one (to create a batch of size one)
             rectangle = torch.unsqueeze(rectangle, dim=0)
             rectangle = rectangle.to(self.device)
-            cost = model(rectangle).item()
+            
+            costs = [model(rectangle).item() for _ in range(nb_predictions)]
         
-        return cost
-    
-    def predict_rectangles_costs(self, rectangles, model, transform):
-        
-        # Turn off gradients computation
-        with torch.no_grad():
-            
-            # Define an empty list to create the batch of images
-            rectangles_batch = []
-            
-            for rectangle in rectangles:
-                time_pred_start = time.time()
+        # print("costs: ", costs)
+        # print("\n")
 
-                # Convert the image from BGR to RGB
-                rectangle = cv2.cvtColor(rectangle, cv2.COLOR_BGR2RGB)
-                # Make a PIL image
-                rectangle = PIL.Image.fromarray(rectangle)
-
-                # Apply transforms to the image
-                rectangle = transform(rectangle )
-
-                # Add a dimension of size one (to create a batch of size one)
-                rectangle = torch.unsqueeze(rectangle, dim=0)
-                
-                rectangles_batch.append(rectangle)
-                
-                time_pred_stop = time.time()
-            
-            # Concatenate all the cropped rectangular images to make the batch
-            rectangles_batch = torch.cat(rectangles_batch, 0)
-            
-            rectangles_batch = rectangles_batch.to(self.device)
-            
-            costs = model(rectangles_batch)
-            print("Prediction time: ", time_pred_stop - time_pred_start)
-        
         return costs
     
-    def extract_trajectory_rectangles(self, trajectory_image, image):
+    def predict_trajectory_cost(self, trajectory_image, image):
         
         nb_points = trajectory_image.shape[0]
         assert nb_points % 2 == 0, "There must be an even number of points"
@@ -322,7 +288,7 @@ class TraversabilityAnalysis:
         
         points_quadrilateral = np.zeros((4, 2))
         
-        rectangles = []
+        costs = []
         
         for i in range(nb_quadrilaterals):
             # Fill the coordinates of each quadrilaterals
@@ -337,43 +303,32 @@ class TraversabilityAnalysis:
             # Extract the rectangular region from the image
             rectangle = image[min_y:max_y, min_x:max_x]
             
-            # Append the rectangle to the list of rectangles
-            rectangles.append(rectangle)
-            
-        return rectangles, nb_quadrilaterals
-     
-    def predict_trajectory_cost(self, trajectory_rectangles):
-        
-        # Predict the traversal cost of the rectangular regions
-        costs = self.predict_rectangles_costs(trajectory_rectangles, self.model, self.transform)
+            # Predict the traversal cost of the rectangular region
+            costs.append(self.predict_rectangle_costs(rectangle, self.model, self.transform))
         
         # image = dw.draw_points(image, trajectory_image)
         
         # Compute the cost of the trajectory
         # cost = np.mean(costs)
-        cost = torch.max(costs).item()
+        trajectory_costs = []
         
-        return cost
-    
-    def predict_trajectories_costs(self, trajectories_rectangles, nb_rectangles_trajectories):
+        for k in range(3):
+            mean = 0
+            for i in range(nb_quadrilaterals):
+                mean += costs[i][k]
+            mean /= nb_quadrilaterals
+            trajectory_costs.append(mean)
         
-        # Predict the traversal cost of the rectangular regions
-        costs = self.predict_rectangles_costs(trajectories_rectangles, self.model, self.transform)
+        # print(trajectory_costs)
         
-        # Define an empty list to store the trajectories costs
-        trajectories_costs = []
+        # cost = np.max(costs)
+        trajectory_cost = np.mean(trajectory_costs)
+        # print("Trajectory cost: ", trajectory_cost)
         
-        indexes = np.cumsum(nb_rectangles_trajectories) - nb_rectangles_trajectories[0]
+        trajectory_uncertainty = np.var(trajectory_costs)
+        # print("Trajectory cost uncertainty: ", trajectory_uncertainty, "\n")
         
-        # Compute the traversal cost for each trajectory
-        for i in range(len(nb_rectangles_trajectories)):
-            trajectories_costs.append(
-                torch.max(  #TODO:
-                    costs[indexes[i]:indexes[i]+nb_rectangles_trajectories[i]]
-                ).item())
-        
-        return trajectories_costs
-    
+        return trajectory_cost, trajectory_uncertainty
     
     def callback_image(self, msg):
         """Function called each time a new ros Image message is received on
@@ -388,8 +343,6 @@ class TraversabilityAnalysis:
         image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
         image_to_display = np.copy(image)
         
-        # image_undistorted_cropped = cv2.undistort(image_to_display, self.K, self.distorsion, None, self.new_K)[self.y_cropped:self.y_cropped+self.h_cropped, self.x_cropped:self.x_cropped+self.w_cropped]
-        
         # Current state [x(m), y(m), yaw(rad), v(m/s), omega(rad/s)]
         x_current = [0., 0., 0., self.v, self.omega]
         # x_current = [0., 0., self.theta, self.v, self.omega]
@@ -399,88 +352,62 @@ class TraversabilityAnalysis:
         # omegas = [0.5]
         
         # Define an empty list to store the trajectories cost
-        # trajectories_costs = []
+        trajectories_cost = []
+        trajectories_uncertainty = []
         
-        # Define an empty list to store all the rectangular regions
-        # cropped in the image
-        trajectories_rectangles = []
-        
-        nb_rectangles_trajectories = []
-        
-        # Define an empty list to store the trajectories
-        trajectories = []
-        
-        # Go through the linear / angular velocities candidate couples
-        # (the linear velocity is always taken equal to 1 here)
         for omega in omegas:
             # Predict a trajectory given the current state of the robot
             # and velocities
             trajectory = self.predict_trajectory(x_current, v=1., omega=omega, predict_time=self.T, dt=self.dt)
-            trajectories.append(trajectory)
             
             # Project the points expressed in the world frame onto the image plan
-            # trajectory_image = self.compute_points_image(trajectory)
-            trajectory_image_sampled = self.compute_points_image(trajectory[::8])
+            trajectory_image = self.compute_points_image(trajectory)
+            trajectory_image_sampled = self.compute_points_image(trajectory[::5])
             
             # Remove points or pairs of points which are outside the image
-            # trajectory_image = self.remove_outside_points(trajectory_image)
+            trajectory_image = self.remove_outside_points(trajectory_image)
             trajectory_image_sampled = self.remove_outside_pairs(trajectory_image_sampled)
             
-            # Extract the rectangles in the trajectory from the image
-            trajectory_rectangles, nb_rectangles = self.extract_trajectory_rectangles(trajectory_image_sampled, image)
-            # Concatenate the rectangles
-            trajectories_rectangles += trajectory_rectangles
-            #
-            nb_rectangles_trajectories.append(nb_rectangles)
-            
             # Compute the trajectory cost
-            # trajectory_cost = self.predict_trajectory_cost(trajectory_rectangles)
-            # trajectories_costs.append(trajectory_cost)
+            trajectory_cost, trajectory_uncertainty = self.predict_trajectory_cost(trajectory_image_sampled, image)
+            trajectories_cost.append(trajectory_cost)
+            trajectories_uncertainty.append(trajectory_uncertainty)
             
             # Get the color associated with a cost
-            # color = self.linear_gradient(trajectory_cost, -2, 5)
+            color = self.linear_gradient(trajectory_cost, -2, 5)
             
             # Display the trajectory on the image
-            # image_to_display = self.display_trajectory(image_to_display, trajectory_image, color=color)
-        
-        # Compute the costs of all the rectangular regions of the image and
-        # gather them into trajectories costs
-        trajectories_costs = self.predict_trajectories_costs(trajectories_rectangles, nb_rectangles_trajectories)
-        
+            image_to_display = self.display_trajectory(image_to_display, trajectory_image, color=color)
+            
         # print("\n")
         
         # List of text positions on the x axis
         text_x = [210, 410, 610, 810, 1010]
         
-        # Go through the trajectories
-        for i in range(len(omegas)):
+        for i in range(len(text_x)):
             
-            # Project the points expressed in the world frame onto the image plan
-            trajectory_image = self.compute_points_image(trajectories[i])
-            
-            # Remove points or pairs of points which are outside the image
-            trajectory_image = self.remove_outside_points(trajectory_image)
-            
-            # Compute the color associated with the cost
-            color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 2.5)  # TODO:
-            # color_trajectory = self.linear_gradient(trajectories_costs[i], 2.5, 0)  # TODO:
-            
-            # Display the trajectory on the image
-            image_to_display = self.display_trajectory(image_to_display, trajectory_image, color=color_trajectory)
-        
-        for i in range(len(omegas)):
             # Set the color blue for the lowest trajectory cost
-            color_text = (255, 0, 0) if trajectories_costs[i] == np.min(trajectories_costs) else (255, 255, 255)  # TODO:
+            color = (255, 0, 0) if trajectories_cost[i] == np.min(trajectories_cost) else (255, 255, 255)
             
             # Put the trajectory cost on the image
             image_to_display = cv2.putText(image_to_display,
-                                           str(np.round(trajectories_costs[i], 2)),
+                                           str(np.round(trajectories_cost[i], 2)),
+                                           org=(text_x[i], 650),
+                                           fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                                           fontScale=1,
+                                           color=color,
+                                           thickness=2)
+            
+            color = (0, 0, 255) if trajectories_uncertainty[i] == np.max(trajectories_uncertainty) else (255, 255, 255)
+            
+            # Put the trajectory uncertainty on the image
+            image_to_display = cv2.putText(image_to_display,
+                                           str(np.round(trajectories_uncertainty[i], 2)),
                                            org=(text_x[i], 700),
                                            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                                            fontScale=1,
-                                           color=color_text,
+                                           color=color,
                                            thickness=2)
-            
         
         cv2.imshow("Image", image_to_display)
         cv2.waitKey(2)
