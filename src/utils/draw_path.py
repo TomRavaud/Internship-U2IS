@@ -142,7 +142,7 @@ def draw_quadrilateral(image, corners, color=(0, 0, 255)):
 # Name of the bag file
 # FILE = "bagfiles/sample_bag.bag"
 # FILE = "bagfiles/raw_bagfiles/tom_road.bag"
-FILE = "bagfiles/raw_bagfiles/tom_6.bag"
+FILE = "bagfiles/raw_bagfiles/tom_1.bag"
 
 # Name of the odometry topic
 ODOM_TOPIC = "/odometry/filtered"

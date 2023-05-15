@@ -21,21 +21,22 @@ def draw_points(image, points, color=(0, 0, 255)):
         
     return image
 
-def draw_quadrilateral(image, corners, color=(0, 0, 255)):
+def draw_quadrilateral(image, corners, color=(0, 0, 255), thickness=2):
     """Draw a quadrilateral from its four corners
     Args:
         image (cv::Mat): an OpenCV image
         corners (ndarray (4, 2)): ordered array of the corners
         color (tuple, optional): color of the quadrilateral. Defaults to (0, 0, 255).
+        width (int, optional): width of the quadrilateral. Defaults to 2.
     Returns:
         cv::Mat: the modified image
     """
     corners = corners.astype(np.int32)
     
     # Link the corners with 4 lines
-    image = cv2.line(image, tuple(corners[0]), tuple(corners[1]), color, 2)
-    image = cv2.line(image, tuple(corners[1]), tuple(corners[2]), color, 2)
-    image = cv2.line(image, tuple(corners[2]), tuple(corners[3]), color, 2)
-    image = cv2.line(image, tuple(corners[3]), tuple(corners[0]), color, 2)
+    image = cv2.line(image, tuple(corners[0]), tuple(corners[1]), color, thickness)
+    image = cv2.line(image, tuple(corners[1]), tuple(corners[2]), color, thickness)
+    image = cv2.line(image, tuple(corners[2]), tuple(corners[3]), color, thickness)
+    image = cv2.line(image, tuple(corners[3]), tuple(corners[0]), color, thickness)
     
     return image

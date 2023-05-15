@@ -5,13 +5,15 @@ results/
 pytorch/
 runs/
 bagfiles/raw_bagfiles/
+dist/
 
 # Files used to train myself on classification with the ImageNet dataset
 coffee.jpg
 imagenet_class_labels.txt
 
 Notes.md
-/*.png
+*.png
+*.tiff
 
 # Saved model parameters
 *.params
@@ -19,5 +21,7 @@ Notes.md
 /dwa.py
 # /trajectory_traversal_cost.py
 /optuna_test.py
+/normals.py
+/resnet_jetson.py
 
 # /*.npy

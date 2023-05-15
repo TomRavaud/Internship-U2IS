@@ -18,6 +18,7 @@ from torchvision import transforms
 import torchvision.models as models
 import PIL
 import time
+import matplotlib.pyplot as plt
 
 # Custom modules
 import frames
@@ -72,15 +73,15 @@ class TraversabilityAnalysis:
     #               [0, 500, 180],
     #               [0, 0, 1]])
     
-    # Distorsion coefficients
-    # [k1, k2, p1, p2, k3]
-    distorsion = np.array([-0.041, 0.010, 0.000, 0.000, -0.005])
+    # # Distorsion coefficients
+    # # [k1, k2, p1, p2, k3]
+    # distorsion = np.array([-0.041, 0.010, 0.000, 0.000, -0.005])
     
-    # Compute the new calibration matrix when distorsion is removed
-    new_K, roi = cv2.getOptimalNewCameraMatrix(K, distorsion, (IMAGE_W,IMAGE_H), 1, (IMAGE_W,IMAGE_H))
-    x_cropped, y_cropped, w_cropped, h_cropped = roi
-    print(new_K)
-    print(roi)
+    # # Compute the new calibration matrix when distorsion is removed
+    # new_K, roi = cv2.getOptimalNewCameraMatrix(K, distorsion, (IMAGE_W,IMAGE_H), 1, (IMAGE_W,IMAGE_H))
+    # x_cropped, y_cropped, w_cropped, h_cropped = roi
+    # print(new_K)
+    # print(roi)
     
     # Compute the transform matrix between the world and the robot
     WORLD_TO_ROBOT = np.eye(4)  # The trajectory is directly generated in the robot frame
@@ -99,10 +100,10 @@ class TraversabilityAnalysis:
     model = models.resnet18().to(device=device)
 
     # Replace the last layer by a fully-connected one with 1 output
-    model.fc = nn.Linear(model.fc.in_features, 1, device=device)
+    model.fc = nn.Linear(model.fc.in_features, 10, device=device)
     
     # Load the fine-tuned weights
-    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_3+8bags_3var3sc_transforms.params"))
+    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_classification.params"))
 
     model.eval()
 
@@ -116,10 +117,24 @@ class TraversabilityAnalysis:
         # Mean and standard deviation were pre-computed on the training data
         # (on the ImageNet dataset)
         transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
+            # mean=[0.485, 0.456, 0.406],
+            # std=[0.229, 0.224, 0.225]
+            mean=[0.3426, 0.3569, 0.2914],
+            std=[0.1363, 0.1248, 0.1302]
         ),
     ])
+    
+    # Midpoints of the bins
+    # bins_midpoints = torch.tensor([0.43156512, 0.98983318, 1.19973744, 1.35943443, 1.51740755,
+    #                               1.67225206, 1.80821536, 1.94262708, 2.12798895, 2.6080252], device=device)
+    bins_midpoints = torch.tensor(
+        np.float32(np.load(
+            "datasets/dataset_3+8bags_3var3sc_regression_classification_kmeans_split/bins_midpoints.npy"
+            )),
+        device=device)
+    
+    # Add a dimension to the tensor
+    bins_midpoints = bins_midpoints[:, None]
 
     
     def __init__(self):
@@ -272,7 +287,7 @@ class TraversabilityAnalysis:
             # Add a dimension of size one (to create a batch of size one)
             rectangle = torch.unsqueeze(rectangle, dim=0)
             rectangle = rectangle.to(self.device)
-            cost = model(rectangle).item()
+            cost = torch.argmax(nn.Softmax(dim=1)(model(rectangle))).item()
         
         return cost
     
@@ -307,7 +322,24 @@ class TraversabilityAnalysis:
             
             rectangles_batch = rectangles_batch.to(self.device)
             
-            costs = model(rectangles_batch)
+            # Compute the expected traversal costs
+            traversability_labels_probabilities = nn.Softmax(dim=1)(model(rectangles_batch))
+            costs = torch.matmul(traversability_labels_probabilities, self.bins_midpoints)
+            
+            # Compute the Shannon entropy of the predictions
+            entropies = -torch.sum(
+                torch.mul(traversability_labels_probabilities,
+                          torch.log(traversability_labels_probabilities)),
+                axis=1)
+            
+            # print(entropies)
+            
+            # k = 1.
+            # costs += k*entropies[:, None]
+            
+            # Get the class with the highest probability
+            # costs = torch.argmax(nn.Softmax(dim=1)(model(rectangles_batch)), dim=1)
+            
             print("Prediction time: ", time_pred_stop - time_pred_start)
         
         return costs
@@ -416,6 +448,28 @@ class TraversabilityAnalysis:
             # Predict a trajectory given the current state of the robot
             # and velocities
             trajectory = self.predict_trajectory(x_current, v=1., omega=omega, predict_time=self.T, dt=self.dt)
+            
+            # print(trajectory.shape)
+            # plt.figure(1)
+            # plt.axis('scaled')
+            # plt.plot(trajectory[:, 0], trajectory[:, 1], "r")
+            
+            # points_world = np.zeros((trajectory.shape[0], 3))
+            # points_world[:, :2] = trajectory[:, :2]
+            
+            # # Compute the points coordinates in the camera frame
+            # points_camera = frames.apply_rigid_motion(
+            #     points_world,
+            #     np.dot(self.CAM_TO_ROBOT, self.ROBOT_TO_WORLD))
+
+            # # Compute the points coordinates in the image plan
+            # points_image = frames.camera_frame_to_image(points_camera,
+            #                                      self.K)
+            
+            # for j in range(len(points_image)):
+            #     # Draw a circle on the image
+            #     image_to_display = cv2.circle(image_to_display, tuple(np.int32(points_image[j])), 5, (0, 0, 255), -1) 
+            
             trajectories.append(trajectory)
             
             # Project the points expressed in the world frame onto the image plan
@@ -443,6 +497,12 @@ class TraversabilityAnalysis:
             # Display the trajectory on the image
             # image_to_display = self.display_trajectory(image_to_display, trajectory_image, color=color)
         
+        # plt.ylim(-2, 2)
+        # plt.show()
+        
+        # cv2.imshow("Trajectory", image_to_display)
+        # cv2.waitKey(1)
+        
         # Compute the costs of all the rectangular regions of the image and
         # gather them into trajectories costs
         trajectories_costs = self.predict_trajectories_costs(trajectories_rectangles, nb_rectangles_trajectories)
@@ -462,8 +522,8 @@ class TraversabilityAnalysis:
             trajectory_image = self.remove_outside_points(trajectory_image)
             
             # Compute the color associated with the cost
-            color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 2.5)  # TODO:
-            # color_trajectory = self.linear_gradient(trajectories_costs[i], 2.5, 0)  # TODO:
+            color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 2.5)
+            # color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 9)
             
             # Display the trajectory on the image
             image_to_display = self.display_trajectory(image_to_display, trajectory_image, color=color_trajectory)

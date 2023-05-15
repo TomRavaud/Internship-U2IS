@@ -8,11 +8,11 @@ from PIL import Image, ImageDraw, ImageFont  # Image processing
 from tqdm import tqdm  # Progress bar
 
 
-DATASET = "datasets/dataset_8bags_3var3sc/"
+DATASET = "datasets/dataset_to_delete/"
 
 # Read the csv file containing image names and
 # associated pitch velocity variance measurements
-csv_file = DATASET + "/traversal_costs.csv"
+csv_file = DATASET + "traversal_costs.csv"
 dataframe = pd.read_csv(csv_file)
 
 # Sort the dataframe by traversal cost

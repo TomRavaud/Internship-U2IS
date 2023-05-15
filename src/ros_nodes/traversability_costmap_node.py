@@ -360,7 +360,7 @@ class TraversabilityAnalysis:
         
         return trajectories_costs
     
-    def fill_cell(self, image, x, y, color=(0, 0, 255), transparency=0.3):
+    def fill_cell(self, image, x, y, color=(0, 0, 255), transparency=0.5):
         h = image.shape[0]
         dy, dx = 70, 210
 

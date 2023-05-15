@@ -72,15 +72,15 @@ class TraversabilityAnalysis:
     #               [0, 500, 180],
     #               [0, 0, 1]])
     
-    # Distorsion coefficients
-    # [k1, k2, p1, p2, k3]
-    distorsion = np.array([-0.041, 0.010, 0.000, 0.000, -0.005])
+    # # Distorsion coefficients
+    # # [k1, k2, p1, p2, k3]
+    # distorsion = np.array([-0.041, 0.010, 0.000, 0.000, -0.005])
     
-    # Compute the new calibration matrix when distorsion is removed
-    new_K, roi = cv2.getOptimalNewCameraMatrix(K, distorsion, (IMAGE_W,IMAGE_H), 1, (IMAGE_W,IMAGE_H))
-    x_cropped, y_cropped, w_cropped, h_cropped = roi
-    print(new_K)
-    print(roi)
+    # # Compute the new calibration matrix when distorsion is removed
+    # new_K, roi = cv2.getOptimalNewCameraMatrix(K, distorsion, (IMAGE_W,IMAGE_H), 1, (IMAGE_W,IMAGE_H))
+    # x_cropped, y_cropped, w_cropped, h_cropped = roi
+    # print(new_K)
+    # print(roi)
     
     # Compute the transform matrix between the world and the robot
     WORLD_TO_ROBOT = np.eye(4)  # The trajectory is directly generated in the robot frame
@@ -99,10 +99,10 @@ class TraversabilityAnalysis:
     model = models.resnet18().to(device=device)
 
     # Replace the last layer by a fully-connected one with 1 output
-    model.fc = nn.Linear(model.fc.in_features, 10, device=device)
+    model.fc = nn.Linear(model.fc.in_features, 1, device=device)
     
     # Load the fine-tuned weights
-    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_3+8bags_3var3sc_classification_kmeans_100epochs.params"))
+    model.load_state_dict(torch.load("src/models_development/models_parameters/resnet18_fine_tuned_3+8bags_3var3sc_transforms.params"))
 
     model.eval()
 
@@ -116,16 +116,12 @@ class TraversabilityAnalysis:
         # Mean and standard deviation were pre-computed on the training data
         # (on the ImageNet dataset)
         transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
+            # mean=[0.485, 0.456, 0.406],
+            # std=[0.229, 0.224, 0.225]
+            mean=[0.3426, 0.3569, 0.2914],
+            std=[0.1363, 0.1248, 0.1302]
         ),
     ])
-    
-    # Midpoints of the bins
-    bin_midpoints = torch.tensor([0.43156512, 0.98983318, 1.19973744, 1.35943443, 1.51740755,
-                                  1.67225206, 1.80821536, 1.94262708, 2.12798895, 2.6080252], device=device)
-    # Add a dimension to the tensor
-    bin_midpoints = bin_midpoints[:, None]
 
     
     def __init__(self):
@@ -278,7 +274,7 @@ class TraversabilityAnalysis:
             # Add a dimension of size one (to create a batch of size one)
             rectangle = torch.unsqueeze(rectangle, dim=0)
             rectangle = rectangle.to(self.device)
-            cost = torch.argmax(nn.Softmax()(model(rectangle))).item()
+            cost = model(rectangle).item()
         
         return cost
     
@@ -287,11 +283,12 @@ class TraversabilityAnalysis:
         # Turn off gradients computation
         with torch.no_grad():
             
+            time_pred_start = time.time()
+            
             # Define an empty list to create the batch of images
             rectangles_batch = []
             
             for rectangle in rectangles:
-                time_pred_start = time.time()
 
                 # Convert the image from BGR to RGB
                 rectangle = cv2.cvtColor(rectangle, cv2.COLOR_BGR2RGB)
@@ -306,20 +303,16 @@ class TraversabilityAnalysis:
                 
                 rectangles_batch.append(rectangle)
                 
-                time_pred_stop = time.time()
+            time_pred_stop = time.time()
+            print("Prediction time: ", time_pred_stop - time_pred_start)
             
             # Concatenate all the cropped rectangular images to make the batch
             rectangles_batch = torch.cat(rectangles_batch, 0)
             
             rectangles_batch = rectangles_batch.to(self.device)
             
-            # Compute the expected traversal cost
-            costs = torch.matmul(nn.Softmax()(model(rectangles_batch)), self.bin_midpoints)
+            costs = model(rectangles_batch)
             
-            # Get the class with the highest probability
-            # costs = torch.argmax(nn.Softmax()(model(rectangles_batch)), dim=1)
-            
-            print("Prediction time: ", time_pred_stop - time_pred_start)
         
         return costs
     
@@ -393,8 +386,6 @@ class TraversabilityAnalysis:
             msg (sensor_msgs/Image): a ROS image sent by the camera
         """
         
-        time_start = time.time()
-        
         # Convert the ROS Image into the OpenCV format
         image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
         image_to_display = np.copy(image)
@@ -456,7 +447,10 @@ class TraversabilityAnalysis:
         
         # Compute the costs of all the rectangular regions of the image and
         # gather them into trajectories costs
+        time_start = time.time()
         trajectories_costs = self.predict_trajectories_costs(trajectories_rectangles, nb_rectangles_trajectories)
+        time_stop = time.time()
+        print("Execution time: ", time_stop - time_start, "seconds")
         
         # print("\n")
         
@@ -473,8 +467,8 @@ class TraversabilityAnalysis:
             trajectory_image = self.remove_outside_points(trajectory_image)
             
             # Compute the color associated with the cost
-            color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 2.5)
-            # color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 9)
+            color_trajectory = self.linear_gradient(trajectories_costs[i], 0, 2.5)  # TODO:
+            # color_trajectory = self.linear_gradient(trajectories_costs[i], 2.5, 0)  # TODO:
             
             # Display the trajectory on the image
             image_to_display = self.display_trajectory(image_to_display, trajectory_image, color=color_trajectory)
@@ -496,8 +490,6 @@ class TraversabilityAnalysis:
         cv2.imshow("Image", image_to_display)
         cv2.waitKey(2)
         
-        time_stop = time.time()
-        print("Execution time: ", time_stop - time_start, "seconds")
 
     def callback_odom(self, msg):
         # Make the orientation quaternion a numpy array

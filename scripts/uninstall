@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# Uninstall custom packages
+pip uninstall utils params traversalcost
