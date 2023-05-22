@@ -5,7 +5,7 @@ This repository contains the source code of the application I am working on duri
 This project is about learning to estimate terrain traversability from vision for a mobile robot using a self-supervised approach.
 
 
-# Code overview
+<!-- # Code overview
 
 - `bagfiles/` contains the raw data as bagfiles and some helper scripts.
   - `filter_bag.sh` contains the command used to extract the sample bag from the full data.
@@ -56,4 +56,4 @@ where:
 # Perspectives
 
 Check interesting related work :
-- https://antonilo.github.io/vision_locomotion/
+- https://antonilo.github.io/vision_locomotion/ -->

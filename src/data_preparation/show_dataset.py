@@ -13,7 +13,7 @@ DATASET = "datasets/dataset_to_delete/"
 # Read the csv file containing image names and
 # associated pitch velocity variance measurements
 csv_file = DATASET + "traversal_costs.csv"
-dataframe = pd.read_csv(csv_file)
+dataframe = pd.read_csv(csv_file, converters={"image_id": str})
 
 # Sort the dataframe by traversal cost
 sorted_frame = dataframe.sort_values(by=["traversal_cost"])
@@ -45,7 +45,7 @@ for line in range(2):
         # Display the image
         img_name = os.path.join(DATASET + "images",
                                 sorted_frame.iloc[line*5 + col, 0])
-        image = Image.open(img_name)
+        image = Image.open(img_name + ".png")
         image = image.resize((320, 180))
         collage.paste(image, (10 + 340*col, 40 + line*220))
         
@@ -67,7 +67,7 @@ for line in range(2):
         # Display the image
         img_name = os.path.join(DATASET + "images",
                                 sorted_frame.iloc[nb_observations - 10 + line*5 + col, 0])
-        image = Image.open(img_name)
+        image = Image.open(img_name + ".png")
         image = image.resize((320, 180))
         collage.paste(image, (10 + 340*col, 520 + line*220))
         

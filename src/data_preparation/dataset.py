@@ -15,6 +15,7 @@ import shutil
 import pandas as pd
 import matplotlib.pyplot as plt
 plt.rcParams['text.usetex'] = True  # Render Matplotlib text with Tex
+import pywt
 
 # ROS Python libraries
 import cv_bridge
@@ -26,8 +27,13 @@ import tf.transformations
 import utils.drawing as dw
 import utils.frames as frames
 import traversalcost.fourier.frequency_features as ff
-import params.robot
+import params.robot, params.dataset
 
+
+def is_inside_image(image, point):
+    """Check if a point is inside an image"""
+    x, y = point
+    return (x >= 0) and (x < image.shape[1]) and (y >= 0) and (y < image.shape[0])
 
 def compute_features(signal, rate):
     
@@ -56,22 +62,50 @@ def compute_features(signal, rate):
     
     return np.array([signal_variance, signal_energy, signal_sc, signal_ss])
 
+def is_bag_healthy(bag):
+    
+    # Get the bag file duration
+    duration = bag.get_end_time() - bag.get_start_time()  # [seconds]
+    
+    for topic, frequency in [(params.robot.IMAGE_TOPIC,
+                              params.robot.CAMERA_SAMPLE_RATE),
+                             (params.robot.DEPTH_TOPIC,
+                              params.robot.DEPTH_SAMPLE_RATE),
+                             (params.robot.ODOM_TOPIC,
+                              params.robot.ODOM_SAMPLE_RATE),
+                             (params.robot.IMU_TOPIC,
+                              params.robot.IMU_SAMPLE_RATE)]:
+        
+        # Get the number of messages in the bag file
+        nb_message = bag.get_message_count(topic)
+        
+        # Check if the number of messages is consistent with the frequency
+        if np.abs(nb_message - frequency*duration)/(frequency*duration) > 0.01:
+            return False
+        
+    return True
+
 class DatasetBuilder(): 
     
-    # Time during which the future trajectory is taken into account
-    T = 3  # seconds
-
     # Time step for trajectory sampling
-    dt = 0.5  # seconds 
+    # dt = 0.5  # seconds 
 
     # Number of odometry measurements within dt second(s)
-    div = np.int32(params.robot.ODOM_SAMPLE_RATE*dt)  
+    # div = np.int32(params.robot.ODOM_SAMPLE_RATE*dt)  
 
     
     # Initialize the bridge between ROS and OpenCV images
     bridge = cv_bridge.CvBridge()
 
-    features = np.zeros((10000, 12))
+    # Create an array to store the features from which the traversal cost
+    # is designed
+    features = np.zeros((10000, params.dataset.NB_FEATURES))
+    
+    # Create an array to store the velocities
+    velocities = np.zeros((10000, 1))
+    
+    # Create an array to store the pitch rate variance
+    pitch_rate_variance = np.zeros((10000, 1))
     
     
     def __init__(self, name):
@@ -104,6 +138,7 @@ class DatasetBuilder():
         
         # Create a csv file to store the traversal costs
         self.csv_name = self.dataset_directory + "/traversal_costs.csv"
+        
     
     def write_images_and_compute_features(self, files):
         
@@ -115,52 +150,88 @@ class DatasetBuilder():
             
             print("Reading file: " + file)
             
-            if file == "bagfiles/raw_bagfiles/indoor2.bag":
-                params.robot.IMU_TOPIC = "imu/data"
-
             # Open the bag file
             bag = rosbag.Bag(file)
+            
+            if not is_bag_healthy(bag):
+                print("File " + file + " is incomplete. Skipping...")
+                continue
             
             
             # Go through the image topic
             for _, msg_image, t_image in tqdm(
                 bag.read_messages(topics=[params.robot.IMAGE_TOPIC]),
                 total=bag.get_message_count(params.robot.IMAGE_TOPIC)):
+                
+                msg_depth = None
+                TIME_DELTA = 0.05
+                
+                # Keep only the images that can be matched with a depth image
+                if list(bag.read_messages(
+                    topics=[params.robot.DEPTH_TOPIC],
+                    start_time=t_image - rospy.Duration(TIME_DELTA),
+                    end_time=t_image + rospy.Duration(TIME_DELTA))):
+                    
+                    # Find the depth image whose timestamp is closest to that
+                    # of the rgb image
+                    min_t = TIME_DELTA
+                    
+                    for _, msg_depth_i, t_depth in bag.read_messages(
+                        topics=[params.robot.DEPTH_TOPIC],
+                        start_time=t_image - rospy.Duration(TIME_DELTA),
+                        end_time=t_image + rospy.Duration(TIME_DELTA)):
+                        
+                        if np.abs(t_depth.to_sec()-t_image.to_sec()) < min_t:
+                            min_t = np.abs(t_depth.to_sec() - t_image.to_sec())
+                            msg_depth = msg_depth_i
+                
+                else:
+                    continue
+                    
+                # Get the first odometry message received after the image
+                _, first_msg_odom, t_odom = next(iter(bag.read_messages(
+                    topics=[params.robot.ODOM_TOPIC],
+                    start_time=t_image)))
+                
+                # Collect images and IMU data only when the robot is moving
+                # (to avoid collecting images of the same place) 
+                if first_msg_odom.twist.twist.linear.x < \
+                   params.dataset.LINEAR_VELOCITY_THR:
+                    continue
 
                 # Convert the current ROS image to the OpenCV type
                 image = self.bridge.imgmsg_to_cv2(msg_image,
                                                   desired_encoding="passthrough")
-
-                # Get the first odometry message received after the image
-                _, msg_odom, t_odom = next(iter(bag.read_messages(
-                    topics=[params.robot.ODOM_TOPIC],
-                    start_time=t_image)))
-
+                
+                # Convert the current ROS depth image to the OpenCV type
+                depth_image = self.bridge.imgmsg_to_cv2(msg_depth,
+                                                  desired_encoding="passthrough")
+                
                 # Compute the transform matrix between the world and the robot
                 WORLD_TO_ROBOT = frames.pose_to_transform_matrix(
-                    msg_odom.pose.pose)
+                    first_msg_odom.pose.pose)
                 # Compute the inverse transform
                 ROBOT_TO_WORLD = frames.inverse_transform_matrix(WORLD_TO_ROBOT)
 
                 # Initialize an array to store the previous front wheels
                 # coordinates in the image
-                points_image_old = 1e5*np.ones((2, 2))
+                points_image_old = None
 
                 # Define a variable to store the previous timestamp
                 t_odom_old = None
                 
-                first_pose_x = msg_odom.pose.pose.position.x
-                first_pose_y = msg_odom.pose.pose.position.y
+                point_world_old = None
                 distance = 0
+                
+                x_velocity = []
+                
+                nb_rectangles = 0
 
                 # Read the odometry measurement for T second(s)
                 for i, (_, msg_odom, t_odom) in enumerate(bag.read_messages(
                     topics=[params.robot.ODOM_TOPIC],
-                    start_time=t_odom)):
-                # for i, (_, msg_odom, t_odom) in enumerate(bag.read_messages(
-                #     topics=[params.robot.ODOM_TOPIC],
-                #     start_time=t_odom,
-                #     end_time=t_odom+rospy.Duration(self.T))):
+                    start_time=t_odom,
+                    end_time=t_odom+rospy.Duration(params.dataset.T))):
 
                     # Keep only an odometry measurement every dt second(s)
                     # if i % self.div != 0:
@@ -172,13 +243,6 @@ class DatasetBuilder():
                                              msg_odom.pose.pose.position.y,
                                              msg_odom.pose.pose.position.z]])
                     
-                    print(distance)
-                    distance += ((msg_odom.pose.pose.position.x - first_pose_x)**2 +
-                                 (msg_odom.pose.pose.position.y - first_pose_y)**2)**0.5
-                    
-                    if distance > 10:
-                        break
-
                     # Make the orientation quaternion a numpy array
                     q = np.array([msg_odom.pose.pose.orientation.x,
                                   msg_odom.pose.pose.orientation.y,
@@ -222,123 +286,140 @@ class DatasetBuilder():
                     # Compute the points coordinates in the image plan
                     points_image = frames.camera_frame_to_image(points_camera,
                                                                 params.robot.K)
-
-                    # Draw the points on the image
-                    image = dw.draw_points(image, points_image)
-
-                    # Compute the maximum and minimum coordinates on the
-                    # y axis of the image plan
-                    max_y = np.int32(np.max(points_image_old, axis=0)[1])
-                    min_y = np.int32(np.min(points_image, axis=0)[1])
-
-                    # Compute max and min coordinates of the points in
-                    # the image along the x axis
-                    min_x = np.int32(np.min([points_image_old[:, 0],
-                                             points_image[:, 0]]))
-                    max_x = np.int32(np.max([points_image_old[:, 0],
-                                             points_image[:, 0]]))
-
-                    # Extract the rectangular region of interest from
-                    # the original image
-                    image_to_save = image[min_y:max_y, min_x:max_x]
                     
-                    # Process only the rectangles which are visible in the image and
-                    # which surface and ratio between width and height are
-                    # greater than given values
-                    if max_y < image.shape[0] and min_y > 0:
-                    # if max_y < image.shape[0] and min_y > 0 and\
-                    #     image_to_save.shape[0]*image_to_save.shape[1] >= 10000 and\
-                    #     image_to_save.shape[1]/image_to_save.shape[0] <= 5:
+                    # Test if the two points are inside the image
+                    if not is_inside_image(image, points_image[0]) or \
+                       not is_inside_image(image, points_image[1]):
+                            if point_world_old is None:
+                                continue
+                            else:
+                                # If the trajectory goes out of the image
+                                break
+                    
+                    # First point in the image
+                    if point_world_old is None:
+                        # Draw the points on the image
+                        # image = dw.draw_points(image, points_image)
 
+                        point_world_old = point_world
+                        points_image_old = points_image
+                        t_odom_old = t_odom
+                        continue
+                        
+                    distance = np.linalg.norm(point_world -
+                                              point_world_old)
+                    
+                    # Get the linear velocity on x axis
+                    x_velocity.append(msg_odom.twist.twist.linear.x)
+                    
+                    
+                    if distance > params.dataset.PATCH_DISTANCE and \
+                       nb_rectangles < params.dataset.NB_RECTANGLES_MAX:
+                    
+                        # Draw the points on the image
+                        # image = dw.draw_points(image, points_image)
+                        
+                        # Compute the inclination of the patch in the image
+                        delta_old = np.abs(points_image_old[0] - points_image_old[1])
+                        delta_current = np.abs(points_image[0] - points_image[1])
+                        
+                        patch_angle = (
+                            np.arctan(delta_old[1]/delta_old[0]) +
+                            np.arctan(delta_current[1]/delta_current[0])
+                            )/2
+                        
+                        # Discard rectangles that are too inclined
+                        if patch_angle > params.dataset.PATCH_ANGLE_THR:
+                            break
+                        
+                        # Compute the maximum and minimum coordinates on the
+                        # y axis of the image plan
+                        max_y = np.int32(np.max(points_image_old, axis=0)[1])
+                        min_y = np.int32(np.min(points_image, axis=0)[1])
+
+                        # Compute max and min coordinates of the points in
+                        # the image along the x axis
+                        min_x = np.int32(np.min([points_image_old[:, 0],
+                                                 points_image[:, 0]]))
+                        max_x = np.int32(np.max([points_image_old[:, 0],
+                                                 points_image[:, 0]]))
+                         
+                        # Correct the dimensions of the rectangle to respect
+                        # the height-width ratio
+                        rectangle_width = max_x - min_x
+                        rectangle_height = max_y - min_y
+                        
+                        if rectangle_width < \
+                           params.dataset.RECTANGLE_RATIO*(rectangle_height):
+                            # Height of the rectangular regions to be
+                            # eliminated on the right and left of the
+                            # patch
+                            delta = np.int32((
+                                rectangle_height -
+                                (rectangle_width)/params.dataset.RECTANGLE_RATIO
+                                )/2)
+                            
+                            # Coordinates of the vertices of the patch to keep
+                            min_y_rectangle = min_y + delta
+                            max_y_rectangle = max_y - delta
+                            min_x_rectangle = min_x
+                            max_x_rectangle = max_x
+                        
+                        else:
+                            # Width of the rectangular regions to be
+                            # eliminated at the top and bottom of the
+                            # patch
+                            delta = np.int32((
+                                rectangle_width -
+                                params.dataset.RECTANGLE_RATIO*(rectangle_height)
+                                )/2)
+                            
+                            # Coordinates of the vertices of the patch to keep
+                            min_x_rectangle = min_x + delta
+                            max_x_rectangle = max_x - delta
+                            min_y_rectangle = min_y
+                            max_y_rectangle = max_y
+                            
                         # Draw a rectangle in the image to visualize the region
                         # of interest
-                        image = dw.draw_quadrilateral(image,
-                                                   np.array([[min_x, max_y],
-                                                             [min_x, min_y],
-                                                             [max_x, min_y],
-                                                             [max_x, max_y]]),
-                                                   color=(255, 0, 0))
+                        # image = dw.draw_quadrilateral(
+                        #     image,
+                        #     np.array([[min_x_rectangle, max_y_rectangle],
+                        #               [min_x_rectangle, min_y_rectangle],
+                        #               [max_x_rectangle, min_y_rectangle],
+                        #               [max_x_rectangle, max_y_rectangle]]),
+                        #     color=(255, 0, 0))
                         
-                        # Create lists to store all the roll, pitch angles and
-                        # velocities measurement within the dt second(s)
-                        # interval
-                        # roll_angle_values = []
-                        # pitch_angle_values = []
-                        roll_velocity_values = []
-                        pitch_velocity_values = []
-
-                        # Create a list to store vertical acceleration values
-                        z_acceleration_values = []
+                        # Set of points forming the quadrilateral
+                        quadrilateral_points = np.array([
+                            [points_image_old[0]],
+                            [points_image_old[1]],
+                            [points_image[1]],
+                            [points_image[0]]
+                        ], dtype=np.int32)
                         
-                        # Read the IMU measurements within the dt second(s)
-                        # interval
-                        for _, msg_imu, _ in bag.read_messages(
-                            topics=[params.robot.IMU_TOPIC],
-                            start_time=t_odom_old,
-                            end_time=t_odom):
-
-                            # Append angles and angular velocities to the
-                            # previously created lists
-                            # roll_angle_values.append(
-                            #     msg_imu.orientation.x)
-                            # pitch_angle_values.append(
-                            #     msg_imu.orientation.y)
-                            roll_velocity_values.append(
-                                msg_imu.angular_velocity.x)
-                            pitch_velocity_values.append(
-                                msg_imu.angular_velocity.y)
-                            z_acceleration_values.append(
-                                msg_imu.linear_acceleration.z - 9.81)
-
-                        # Compute and write the features in the array
-                        self.features[index_image, 0:4] = compute_features(
-                            z_acceleration_values,
-                            params.robot.IMU_SAMPLE_RATE)
-                        self.features[index_image, 4:8] = compute_features(
-                            roll_velocity_values,
-                            params.robot.IMU_SAMPLE_RATE)
-                        self.features[index_image, 8:12] = compute_features(
-                            pitch_velocity_values,
-                            params.robot.IMU_SAMPLE_RATE)
+                        # Compute the minimum area rectangle containing the set
+                        rect = cv2.minAreaRect(quadrilateral_points)
                         
-                        # Create a list to store linear velocities of the robot
-                        # from fused IMU data and wheels odometry
-                        # linear_velocities_filtered_odom = []
+                        # Convert the rectangle to a set of 4 points
+                        box = cv2.boxPoints(rect)
                         
-                        # Read the filtered odometry measurements within the next rectangle
-                        # for _, msg_filtered_odom, _ in bag.read_messages(
-                        #     topics=[self.VISUAL_ODOM_TOPIC],
-                        #     start_time=t_odom_old,
-                        #     end_time=t_odom):
-                            
-                        #     linear_velocities_filtered_odom.append(
-                        #         msg_filtered_odom.twist.twist.linear.x
-                        #     )
+                        # Draw the rectangle on the image
+                        # image = dw.draw_quadrilateral(image,
+                        #                               box,
+                        #                               color=(0, 255, 0),
+                        #                               thickness=1)
                         
-                        # Create a list to store linear velocities of the robot
-                        # from wheels odometry only
-                        # linear_velocities_wheels_odom = []
+                        # Extract the rectangular region of interest from
+                        # the original image
+                        image_to_save = image[min_y_rectangle:max_y_rectangle,
+                                              min_x_rectangle:max_x_rectangle]
                         
-                        # Read the filtered odometry measurements within the next rectangle
-                        # for _, msg_wheels_odom, _ in bag.read_messages(
-                        #     topics=[self.WHEELS_ODOM_TOPIC],
-                        #     start_time=t_odom_old,
-                        #     end_time=t_odom):
-                            
-                        #     linear_velocities_wheels_odom.append(
-                        #         msg_wheels_odom.twist.twist.linear.x
-                        #     )
-                            
-                        # linear_velocity_filtered = np.mean(linear_velocities_filtered_odom)
-                        # linear_velocity_wheels = np.mean(linear_velocities_wheels_odom)
+                        # print("Image shape: ", image_to_save.shape)
+                        # print("Image ratio: ", image_to_save.shape[1]/image_to_save.shape[0])
+                        # print("Image points: ", points_image)
                         
-                        # Compute the slip ratio
-                        # slip_ratio = 100*(np.abs(linear_velocity_filtered) - np.abs(linear_velocity_wheels))/np.abs(linear_velocity_filtered)
-                        
-                        # self.features[index_image, 12] = slip_ratio
-                        
-                        # self.features[index_image, 13] = index_trajectory
-                        # self.features[index_image, 14] = t_image.to_sec()
+                        # cv2.imshow('image', image_to_save)
                         
                         # Convert the image from BGR to RGB
                         image_to_save = cv2.cvtColor(image_to_save,
@@ -352,16 +433,144 @@ class DatasetBuilder():
 
                         # Save the image in the correct directory
                         image_to_save.save(self.images_directory + "/" + image_name, "PNG")
+                        
+                        # Extract the rectangular region of interest from
+                        # the original depth image
+                        depth_image_to_save = depth_image[min_y_rectangle:max_y_rectangle,
+                                                          min_x_rectangle:max_x_rectangle]
+                        
+                        # Make a PIL image
+                        depth_image_to_save = Image.fromarray(depth_image_to_save)
+                        
+                        # Give the depth image a name
+                        depth_image_name = f"{index_image:05d}.tiff"
+                        
+                        # Save the depth image in the correct directory
+                        depth_image_to_save.save(self.images_directory + "/" + depth_image_name, "TIFF")
+
+                        
+                        nb_rectangles += 1
+                        
+                        
+                        # Create lists to store all the roll, pitch rate
+                        # measurements within the dt second(s) interval
+                        roll_velocity_values = []
+                        pitch_velocity_values = []
+
+                        # Create a list to store vertical acceleration values
+                        z_acceleration_values = []
+                        
+                        # Read the IMU measurements within the dt second(s)
+                        # interval
+                        for _, msg_imu, _ in bag.read_messages(
+                            topics=[params.robot.IMU_TOPIC],
+                            start_time=t_odom_old,
+                            end_time=t_odom):
+
+                            # Append angular velocities and vertical
+                            # acceleration to the previously created lists
+                            roll_velocity_values.append(
+                                msg_imu.angular_velocity.x)
+                            pitch_velocity_values.append(
+                                msg_imu.angular_velocity.y)
+                            z_acceleration_values.append(
+                                msg_imu.linear_acceleration.z - 9.81)
+
+                        # print("roll: ", len(roll_velocity_values))
+                        # print("pitch: ", np.var(pitch_velocity_values))
+                        # print("z acceleration: ", len(z_acceleration_values))
+                        # print("x velocity: ", np.mean(x_velocity))
+                        
+                        # Compute the variance of the pitch rate signal
+                        self.pitch_rate_variance[index_image] = np.var(pitch_velocity_values)
+
+                        # Pad the signals if they are too short
+                        if len(roll_velocity_values) < params.dataset.SIGNAL_MIN_LENGTH:
+                            pad = np.ceil((params.dataset.SIGNAL_MIN_LENGTH - len(roll_velocity_values))/2)
+
+                            roll_velocity_values = pywt.pad(
+                                roll_velocity_values,
+                                pad_widths=pad,
+                                mode=params.dataset.padding_mode)
+                            pitch_velocity_values = pywt.pad(
+                                pitch_velocity_values,
+                                pad_widths=pad,
+                                mode=params.dataset.padding_mode)
+                            z_acceleration_values = pywt.pad(
+                                z_acceleration_values,
+                                pad_widths=pad,
+                                mode=params.dataset.padding_mode)
+                            
+                        # Apply discrete wavelet transform
+                        # approximation = coefficients[0]
+                        # detail = coefficients[1:]
+                        roll_coefficients  = pywt.wavedec(
+                            roll_velocity_values,
+                            level=params.dataset.NB_LEVELS,
+                            wavelet=params.dataset.WAVELET)
+
+                        pitch_coefficients  = pywt.wavedec(
+                            pitch_velocity_values,
+                            level=params.dataset.NB_LEVELS,
+                            wavelet=params.dataset.WAVELET)
+
+                        z_acceleration_coefficients  = pywt.wavedec(
+                            z_acceleration_values,
+                            level=params.dataset.NB_LEVELS,
+                            wavelet=params.dataset.WAVELET)
+
+                        # De-noising
+                        for j in range(1, len(roll_coefficients)):
+                            roll_coefficients[j] = pywt.threshold(
+                                roll_coefficients[j],
+                                value=params.dataset.DENOISE_THR,
+                                mode="soft")
+                            pitch_coefficients[j] = pywt.threshold(
+                                pitch_coefficients[j],
+                                value=params.dataset.DENOISE_THR,
+                                mode="soft")
+                            z_acceleration_coefficients[j] = pywt.threshold(
+                                z_acceleration_coefficients[j],
+                                value=params.dataset.DENOISE_THR,
+                                mode="soft")
+                            
+                        # Fill the features array
+                        for j in range(len(roll_coefficients)):
+                            self.features[index_image, j] = np.var(
+                                roll_coefficients[j])
+
+                        for j in range(len(pitch_coefficients)):
+                            self.features[index_image,
+                                     len(roll_coefficients)+j] = np.var(
+                                         pitch_coefficients[j])
+
+                        for j in range(len(z_acceleration_coefficients)):
+                            self.features[index_image,
+                                     len(roll_coefficients)
+                                     +len(pitch_coefficients)+j] = np.var(
+                                         z_acceleration_coefficients[j])
+                        
+                        # Compute the mean velocity on the current patch
+                        self.velocities[index_image] = np.mean(x_velocity)
+                        
+                        # self.features[index_image, 13] = index_trajectory
+                        # self.features[index_image, 14] = t_image.to_sec() 
 
                         index_image += 1
+                        
+                        x_velocity = []
+                        
+                        point_world_old = point_world
+                        points_image_old = points_image
+                        t_odom_old = t_odom
 
                         # Display the image
-                        cv2.imshow("Image", image)
-                        cv2.waitKey()
-
-                    # Update front wheels outer points image coordinates and timestamp
-                    points_image_old = points_image
-                    t_odom_old = t_odom
+                        # cv2.imshow("Image", image)
+                        # cv2.waitKey()
+                    
+                    elif nb_rectangles == 3:
+                        break
+ 
 
                 index_trajectory += 1
 
@@ -370,73 +579,109 @@ class DatasetBuilder():
         
         # Keep only the rows that are not filled with zeros
         self.features = self.features[np.any(self.features, axis=1)]
+        self.velocities = self.velocities[np.any(self.velocities, axis=1)]
+        self.pitch_rate_variance = self.pitch_rate_variance[np.any(self.pitch_rate_variance, axis=1)]
         
     def compute_traversal_costs(self):
          
-        # costs = self.features[:, 8, np.newaxis]
-        # self.features = self.features[:, [2, 6, 10]]
-        # self.features = self.features[:, [0, 4, 8]]
-        features = self.features[:, [0, 2, 4, 6, 8, 10]]
+        # # costs = self.features[:, 8, np.newaxis]
+        # # self.features = self.features[:, [2, 6, 10]]
+        # # self.features = self.features[:, [0, 4, 8]]
+        # # features = self.features[:, [0, 2, 4, 6, 8, 10]]
         
-        # Scale the dataset
-        scaler = StandardScaler()
-        features_scaled = scaler.fit_transform(features)
+        # # Scale the dataset
+        # scaler = StandardScaler()
+        # features_scaled = scaler.fit_transform(self.features)
 
-        # Apply PCA
-        pca = PCA(n_components=1)
-        costs = pca.fit_transform(features_scaled)
+        # # Apply PCA
+        # pca = PCA(n_components=2)
+        # costs = pca.fit_transform(features_scaled)
         
-        # Display the coefficients of the first principal component
+        # # Display the coefficients of the first principal component
         # plt.matshow(pca.components_, cmap="viridis")
         # plt.colorbar()
         # plt.xticks(range(12),
-        #            ["variance (z acceleration)", "energy (z acceleration)",
-        #             "spectral centroid (z acceleration)",
-        #             "spectral spread (z acceleration)",
-        #             "variance (roll rate)", "energy (roll rate)",
-        #             "spectral centroid (roll rate)",
-        #             "spectral spread (roll rate)",
-        #             "variance (pitch rate)", "energy (pitch rate)",
-        #             "spectral centroid (pitch rate)",
-        #             "spectral spread (pitch rate)"],
+        #            [
+        #                "var approx [roll]",
+        #                "var lvl 1 [roll]",
+        #                "var lvl 2 [roll]",
+        #                "var lvl 3 [roll]",
+        #                "var approx [pitch]",
+        #                "var lvl 1 [pitch]",
+        #                "var lvl 2 [pitch]",
+        #                "var lvl 3 [pitch]",
+        #                "var approx [z acc]",
+        #                "var lvl 1 [z acc]",
+        #                "var lvl 2 [z acc]",
+        #                "var lvl 3 [z acc]",
+        #             ],
         #            rotation=60,
         #            ha="left")
         # plt.xlabel("Feature")
         # plt.ylabel("Principal component 1")
         # plt.title("First principal component coefficients")
-        # plt.show()
         
-        # robust_scaler = RobustScaler()
-        # normalized_costs = robust_scaler.fit_transform(costs)
+        # dataframe = pd.DataFrame(costs, columns=["pc1", "pc2"])
+        # # dataframe["velocity"] = velocities
+
+        # plt.figure()
+
+        # plt.scatter(dataframe["pc1"],
+        #             dataframe["pc2"],
+        #             c=self.velocities[:, 0],
+        #             cmap="jet")
         
-        # Transform the costs to make the distribution closer
-        # to a Gaussian distribution
-        normalized_costs = np.log(costs - np.min(costs) + 1)
+        # plt.colorbar()
+
+        # plt.xlabel("Principal component 1")
+        # plt.ylabel("Principal component 2")
+        
+        # # robust_scaler = RobustScaler()
+        # # normalized_costs = robust_scaler.fit_transform(costs)
+        
+        # # Polar
+        # x = costs[:, 0]
+        # x = x - np.min(x)
+        # y = costs[:, 1]
+        # r = np.sqrt(x**2 + y**2)
+        # theta = np.arctan(y/(x+1e-3))
+        # costs = r*np.sin((theta + np.pi/2)/2)
+        
+        # # Add an axis
+        # costs = costs[:, None]
+        
+        # # Transform the costs to make the distribution closer
+        # # to a Gaussian distribution
+        # # normalized_costs = np.log(costs - np.min(costs) + 1)
         # normalized_costs = costs
         
-        # Create uniform bins
-        # nb_bins = 20
-        # bins = np.linspace(0, np.max(normalized_costs) + 1e-2, nb_bins+1)
+        # # Create uniform bins
+        # # nb_bins = 20
+        # # bins = np.linspace(0, np.max(normalized_costs) + 1e-2, nb_bins+1)
         
-        # Distribution of the dataset
-        # plt.hist(normalized_costs, bins)
+        # # Distribution of the dataset
+        # # plt.hist(normalized_costs, bins)
         
-        # Apply uniform binning (classes: from 0 to nb_bins - 1)
-        # digitized_costs = np.digitize(normalized_costs, bins) - 1
+        # # Apply uniform binning (classes: from 0 to nb_bins - 1)
+        # # digitized_costs = np.digitize(normalized_costs, bins) - 1
         
-        # # Apply one-hot encoding
-        # one_hot_encoder = OneHotEncoder()
-        # one_hot_costs = one_hot_encoder.fit_transform(digitized_costs).toarray()
+        # # # Apply one-hot encoding
+        # # one_hot_encoder = OneHotEncoder()
+        # # one_hot_costs = one_hot_encoder.fit_transform(digitized_costs).toarray()
+        
+        normalized_costs = self.pitch_rate_variance
+        
         
         # Apply K-means binning
-        nb_bins = 10  # Number of bins
-        discretizer = KBinsDiscretizer(n_bins=nb_bins, encode="ordinal", strategy="kmeans")
+        discretizer = KBinsDiscretizer(
+            n_bins=params.dataset.NB_BINS,
+            encode="ordinal",
+            strategy=params.dataset.BINNING_STRATEGY)
         digitized_costs = np.int32(discretizer.fit_transform(normalized_costs))
         
         # Get the edges and midpoints of the bins
         bins_edges = discretizer.bin_edges_[0]
         bins_midpoints = (bins_edges[:-1] + bins_edges[1:])/2
-        # print(f"Bins midpoints: {bin_midpoints}\n"
         
         # Save the midpoints in the dataset directory
         np.save(self.dataset_directory+"/bins_midpoints.npy", bins_midpoints)
@@ -448,20 +693,7 @@ class DatasetBuilder():
         plt.ylabel("Samples")
         plt.show()
         
-        
-        # slip_costs = self.features[:, 12, None]
-        # normalized_slip_costs = np.log(slip_costs - np.min(slip_costs) + 1)
-        
-        # plt.figure()
-        # plt.hist(slip_costs)
-        # plt.title("Slip costs")
-        
-        # print(np.min(normalized_slip_costs), np.max(normalized_slip_costs))
-        
-        # plt.show()
-        
         return normalized_costs, digitized_costs
-        # return normalized_costs, digitized_costs, slip_costs
 
     def write_traversal_costs(self):
         
@@ -472,7 +704,7 @@ class DatasetBuilder():
         file_costs_writer = csv.writer(file_costs, delimiter=",")
 
         # Write the first row (columns title)
-        headers = ["image_id", "traversal_cost", "traversability_label"]
+        headers = ["image_id", "traversal_cost", "traversability_label", "linear_velocity"]
         # headers = ["image_id", "traversal_cost", "traversability_label", "trajectory_id", "image_timestamp"]  #TODO:
         file_costs_writer.writerow(headers)
         
@@ -486,18 +718,19 @@ class DatasetBuilder():
         for i in range(costs.shape[0]):
             
             # Give the image a name
-            image_name = f"{i:05d}.png"
+            image_name = f"{i:05d}"
             
             # cost = slip_costs[i, 0]
             cost = costs[i, 0]
             label = labels[i, 0]
+            linear_velocity = self.velocities[i, 0]
             
             #TODO:
             # trajectory_id = trajectories_ids[i]
             # image_timestamp = images_timestamps[i]
 
             # Add the image index and the associated score in the csv file
-            file_costs_writer.writerow([image_name, cost, label])  #TODO:
+            file_costs_writer.writerow([str(image_name), cost, label, linear_velocity])  #TODO:
             # file_costs_writer.writerow([image_name, cost, label, trajectory_id, image_timestamp])
 
         # Close the csv file
@@ -516,14 +749,15 @@ class DatasetBuilder():
         
         train_size = 0.85  # 85% of the data will be used for training
         
-        # Read the CSV file into a Pandas dataframe
-        dataframe = pd.read_csv(self.csv_name)
+        # Read the CSV file into a Pandas dataframe (read image_id values as
+        # strings to keep leading zeros)
+        dataframe = pd.read_csv(self.csv_name, converters={"image_id": str})
         
-        # TODO:
-        dataframe = dataframe[:-170]
-
         # Split the dataset randomly into training and testing sets
-        dataframe_train, dataframe_test = train_test_split(dataframe, train_size=train_size, stratify=dataframe["traversability_label"])
+        dataframe_train, dataframe_test = train_test_split(dataframe, train_size=train_size)
+        # dataframe_train, dataframe_test = train_test_split(dataframe,
+        #                                                    train_size=train_size,
+        #                                                    stratify=dataframe["traversability_label"])
         
         # Count the number of samples per class
         train_distribution = dataframe_train["traversability_label"].value_counts()
@@ -540,12 +774,14 @@ class DatasetBuilder():
         # Iterate over each row of the training set and copy the images to the training directory
         for _, row in dataframe_train.iterrows():
             image_file = os.path.join(self.images_directory, row["image_id"])
-            shutil.copy(image_file, train_directory)
+            shutil.copy(image_file + ".png", train_directory)
+            shutil.copy(image_file + ".tiff", train_directory)
 
         # Iterate over each row of the testing set and copy the images to the testing directory
         for _, row in dataframe_test.iterrows():
             image_file = os.path.join(self.images_directory, row["image_id"])
-            shutil.copy(image_file, test_directory)
+            shutil.copy(image_file + ".png", test_directory)
+            shutil.copy(image_file + ".tiff", test_directory)
         
         # Store the train and test splits in csv files
         dataframe_train.to_csv(self.dataset_directory + "/traversal_costs_train.csv", index=False)
@@ -561,7 +797,7 @@ if __name__ == "__main__":
     
     dataset.write_images_and_compute_features(
         files=[
-            "bagfiles/raw_bagfiles/tom_1.bag",
+            # "bagfiles/raw_bagfiles/tom_1.bag",
             # "bagfiles/raw_bagfiles/tom_2.bag",
             # "bagfiles/raw_bagfiles/tom_3.bag",
             # "bagfiles/raw_bagfiles/tom_4.bag",
@@ -575,8 +811,11 @@ if __name__ == "__main__":
             # "bagfiles/raw_bagfiles/indoor.bag",
             # "bagfiles/raw_bagfiles/indoor2.bag",
             # "bagfiles/raw_bagfiles/simulation.bag"
+            # "bagfiles/raw_bagfiles/depth/antoine_2.bag",
+            "bagfiles/raw_bagfiles/depth/tom_missing.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full.bag",
         ])
 
-    # dataset.write_traversal_costs()
+    dataset.write_traversal_costs()
     
-    # dataset.create_train_test_splits()
+    dataset.create_train_test_splits()

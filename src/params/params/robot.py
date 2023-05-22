@@ -3,6 +3,7 @@
 import numpy as np
 import utils.frames as frames
 
+
 ###########################################
 ## Robot characteristics and accessories ##
 ###########################################
@@ -27,10 +28,11 @@ CAM_TO_ROBOT = frames.inverse_transform_matrix(ROBOT_TO_CAM)
 
 # Topics' name
 IMAGE_TOPIC = "/zed_node/rgb/image_rect_color"
-ODOM_TOPIC = "/odometry/filtered"
+DEPTH_TOPIC = "/zed_node/depth/depth_registered"
+ODOM_TOPIC = "/odometry/filtered/local"
 WHEELS_ODOM_TOPIC = "/husky_velocity_controller/odom"
 VISUAL_ODOM_TOPIC = "/zed_node/odom"
-IMU_TOPIC = "imu/data"
+IMU_TOPIC = "/imu/data"
 
 
 #############################
@@ -46,4 +48,10 @@ K = np.array([[534, 0, 634],
 ODOM_SAMPLE_RATE = 50  # Hz
 
 # IMU measurements frequency
-IMU_SAMPLE_RATE = 43
+IMU_SAMPLE_RATE = 100  # Hz
+
+# Image frequency
+CAMERA_SAMPLE_RATE = 3  # Hz
+
+# Depth image frequency
+DEPTH_SAMPLE_RATE = 3  # Hz

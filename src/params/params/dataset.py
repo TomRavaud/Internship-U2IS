@@ -6,19 +6,19 @@
 #################################
 
 # Linear velocity threshold from which the robot is considered to be moving
-linear_velocity_threshold = 0.05  # [m/s]
+LINEAR_VELOCITY_THR = 0.05  # [m/s]
 
 # Maximum number of rectangles to be detected in an image
-nb_rectangles_max = 3
+NB_RECTANGLES_MAX = 3
 
 # Distance the robot travels within a patch
-patch_distance = 0.5  # [m]
+PATCH_DISTANCE = 0.5  # [m]
 
 # Threshold to filter tilted patches
-patch_angle_threshold = 0.2  # [rad]
+PATCH_ANGLE_THR = 0.2  # [rad]
 
 # Ratio between the width and the height of a rectangle
-rectangle_ratio = 3
+RECTANGLE_RATIO = 3
 
 # Time during which the future trajectory is taken into account
 T = 10  # [s]
@@ -29,29 +29,29 @@ T = 10  # [s]
 ####################
 
 # Number of levels for the discrete wavelet transform
-nb_levels = 2
+NB_LEVELS = 2
 
 # De-noising threshold for roll rate, pitch rate and vertical acceleration
 # signals
-denoise_threshold = 0.005  # [rad/s | m/s^2]
+DENOISE_THR = 0.005  # [rad/s | m/s^2]
 
 # Wavelet name
-wavelet = "db3"
+WAVELET = "db3"
 
 # Minimum length for a signal (depends on the wavelet and the number of levels)
-signal_min_length = 20
+SIGNAL_MIN_LENGTH = 20
 
 # Padding mode for the signals that are too short
-padding_mode = "symmetric"
+PADDING_MODE = "symmetric"
 
 # Number of signals to characterize a patch
-nb_signals = 3
+NB_SIGNALS = 3
 
 # Number of features to extract from a signal
-nb_features = (nb_levels + 1)*nb_signals
+NB_FEATURES = (NB_LEVELS + 1)*NB_SIGNALS
 
 # Number of bins to digitized the traversal cost
-nb_bins = 10
+NB_BINS = 10
 
 # Set the binning strategy
-binning_strategy = "kmeans"
+BINNING_STRATEGY = "kmeans"
