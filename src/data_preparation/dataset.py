@@ -28,6 +28,7 @@ import utils.drawing as dw
 import utils.frames as frames
 import traversalcost.fourier.frequency_features as ff
 import params.robot, params.dataset
+import depth.utils as depth
 
 
 def is_inside_image(image, point):
@@ -85,14 +86,8 @@ def is_bag_healthy(bag):
         
     return True
 
+
 class DatasetBuilder(): 
-    
-    # Time step for trajectory sampling
-    # dt = 0.5  # seconds 
-
-    # Number of odometry measurements within dt second(s)
-    # div = np.int32(params.robot.ODOM_SAMPLE_RATE*dt)  
-
     
     # Initialize the bridge between ROS and OpenCV images
     bridge = cv_bridge.CvBridge()
@@ -142,6 +137,7 @@ class DatasetBuilder():
     
     def write_images_and_compute_features(self, files):
         
+        # Initialize the index of the image and the trajectory
         index_image = 0
         index_trajectory = 0
         
@@ -420,6 +416,7 @@ class DatasetBuilder():
                         # print("Image points: ", points_image)
                         
                         # cv2.imshow('image', image_to_save)
+                        # cv2.waitKey(0)
                         
                         # Convert the image from BGR to RGB
                         image_to_save = cv2.cvtColor(image_to_save,
@@ -437,7 +434,32 @@ class DatasetBuilder():
                         # Extract the rectangular region of interest from
                         # the original depth image
                         depth_image_to_save = depth_image[min_y_rectangle:max_y_rectangle,
-                                                          min_x_rectangle:max_x_rectangle]
+                                                          min_x_rectangle:max_x_rectangle].copy()
+                        
+                        # depth_image_example = cv2.imread("/home/tom/Traversability-Tom/Internship-U2IS/WuManchu_0360.png", cv2.IMREAD_ANYDEPTH)
+                        
+                        # normals_example = depth.compute_normals(depth_image_example)
+                        
+                        # normals_example = depth.convert_range(normals_example, 0, 1, 0, 255).astype(np.uint8)
+                        # cv2.imshow('normals', normals_example)
+                        # cv2.waitKey(0)
+                        
+                        normals = depth.compute_normals(depth_image_to_save)
+                        
+                        normals = depth.fill_nan_inf(normals)
+                        
+                        # normals = depth.convert_range(normals, 0, np.max(normals), 0, 255).astype(np.uint8)
+                        # cv2.imshow('normals', normals)
+                        # cv2.waitKey(0)
+                        
+                        # Replace NaN and Inf values (missing information) by a default value
+                        depth_image_to_save = depth.fill_nan_inf(depth_image_to_save)
+                        
+                        # print(depth_image_to_save)
+                        
+                        # cv2.imshow("depth", depth.convert_range(depth_image_to_save,
+                        #                                         0.7, 2, 0, 255).astype(np.uint8))
+                        # cv2.waitKey(0)
                         
                         # Make a PIL image
                         depth_image_to_save = Image.fromarray(depth_image_to_save)
@@ -448,9 +470,7 @@ class DatasetBuilder():
                         # Save the depth image in the correct directory
                         depth_image_to_save.save(self.images_directory + "/" + depth_image_name, "TIFF")
 
-                        
                         nb_rectangles += 1
-                        
                         
                         # Create lists to store all the roll, pitch rate
                         # measurements within the dt second(s) interval
@@ -568,7 +588,7 @@ class DatasetBuilder():
                         # cv2.imshow("Image", image)
                         # cv2.waitKey()
                     
-                    elif nb_rectangles == 3:
+                    elif nb_rectangles == params.dataset.NB_RECTANGLES_MAX:
                         break
  
 
@@ -813,7 +833,16 @@ if __name__ == "__main__":
             # "bagfiles/raw_bagfiles/simulation.bag"
             # "bagfiles/raw_bagfiles/depth/antoine_2.bag",
             "bagfiles/raw_bagfiles/depth/tom_missing.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full1.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full2.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full3.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full4.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full5.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full6.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full7.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full8.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full9.bag",
+            "bagfiles/raw_bagfiles/depth/tom_full10.bag",
         ])
 
     dataset.write_traversal_costs()

@@ -1,4 +1,4 @@
 #!/bin/bash
 
 # Install custom packages
-pip install src/utils src/params src/traversal_cost
+pip install src/utils src/params src/traversal_cost src/depth
