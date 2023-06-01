@@ -1,3 +1,33 @@
+"""
+Script to build a dataset for terrain traversability estimation from images
+(rgb, depth, normals) and the robot linear velocity. A dataset is a folder
+with the following structure:
+
+dataset_{name}/
+|__images/
+|  |__00000.png
+|  |__00000.tiff
+|  |__00001.png
+|  |__00001.tiff
+|  |__...
+|__images_train/
+|__images_test/
+|__traversal_costs.csv
+|__traversal_costs_train.csv
+|__traversal_costs_test.csv
+|__bins_midpoints.npy
+
+where:
+- xxxxx.png and xxxxx.tiff are the rgb and depth images respectively
+- images_train/ and images_test/ are the training and testing sets of images
+- traversal_costs.csv is a csv file containing the traversal costs associated
+with the images, the traversability labels (obtained from the continuous
+traversal cost after digitization) and the linear velocities of the robot
+- traversal_costs_train.csv and traversal_costs_test.csv contain the same
+information but for the training and testing sets respectively
+"""
+
+
 # Python libraries
 import numpy as np
 import os
@@ -444,9 +474,9 @@ class DatasetBuilder():
                         # cv2.imshow('normals', normals_example)
                         # cv2.waitKey(0)
                         
-                        normals = depth.compute_normals(depth_image_to_save)
+                        # normals = depth.compute_normals(depth_image_to_save)
                         
-                        normals = depth.fill_nan_inf(normals)
+                        # normals = depth.fill_nan_inf(normals)
                         
                         # normals = depth.convert_range(normals, 0, np.max(normals), 0, 255).astype(np.uint8)
                         # cv2.imshow('normals', normals)

@@ -27,4 +27,3 @@ Notes.md
 # /*.npy
 
 /src/models_development/images_test.py
-/src/traversal_cost/siamese_network/train_test.ipynb
