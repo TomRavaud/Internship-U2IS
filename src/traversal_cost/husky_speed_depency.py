@@ -1,3 +1,9 @@
+"""
+A ROS node that makes the Husky robot move back and forth at different speeds.
+The goal is to collect vibration data (roll rate, pitch rate and vertical
+acceleration data from IMU measurements) at different speeds and on different
+terrains to design a traversal cost function.
+"""
 #!/usr/bin/env python3
 
 # ROS - Python librairies
@@ -19,11 +25,11 @@ if __name__ == "__main__":
     pub_velocity = rospy.Publisher("cmd_vel", Twist, queue_size=1)
     
     # Rate at which velocity commands are published on the topic
-    publishing_rate = 50
-    rate = rospy.Rate(publishing_rate)
+    PUBLISHING_RATE = 50
+    rate = rospy.Rate(PUBLISHING_RATE)
     
     # Distance the robot will travel to collect data
-    distance = 5  # meters
+    DISTANCE = 5  # meters
     
     # Create the range of speeds to go through
     min_velocity = 0.2
@@ -33,8 +39,6 @@ if __name__ == "__main__":
     velocities = np.ravel([positive_velocities, -positive_velocities], order="F")
     print(velocities)
     
-    # velocities =  [1, -1, 0.5, -0.5]
-    
     # Instantiate a Twist object to store the velocity command
     velocity_command = Twist()
     
@@ -43,9 +47,9 @@ if __name__ == "__main__":
         distance_travelled = 0
         velocity_command.linear.x = velocity
         
-        while not rospy.is_shutdown() and distance_travelled < distance:
+        while not rospy.is_shutdown() and distance_travelled < DISTANCE:
             pub_velocity.publish(velocity_command)
-            distance_travelled += np.abs(velocity)*1/publishing_rate
+            distance_travelled += np.abs(velocity)*1/PUBLISHING_RATE
             rate.sleep()
         
         rospy.Rate(0.3).sleep()

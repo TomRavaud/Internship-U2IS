@@ -1,7 +1,12 @@
 import numpy as np
 from tabulate import tabulate
-import traversalcost.time_features
 import inspect
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Import custom packages
+import traversalcost.features
+import params.traversal_cost
 
 
 def get_features(roll_rate_values,
@@ -84,7 +89,7 @@ def generate_description(dict):
         ],
         [
             dict["function"].__name__,
-            (dict["function"].__doc__).split("\n")[0],
+            (dict["function"].__doc__).split("\n\n")[0],
             len(dummy_features),
             args_roll_rate,
             args_pitch_rate,
@@ -102,15 +107,103 @@ def generate_description(dict):
     return table
 
 
+def compute_traversal_costs(dataset,
+                            cost_function):
+    """Compute the traversal cost of each sample in a dataset
+
+    Args:
+        dataset (string): Path to the dataset
+        cost_function (function): Function used to compute the cost of a
+        sample
+
+    Returns:
+        dataframe: A dataframe containing the terrain classes, the linear
+        velocities of the robot and the traversal costs
+    """    
+    # Read the csv file containing the labels
+    labels_df = pd.read_csv(dataset + "labels.csv",
+                            converters={"id": str})
+    
+    # Add an empty column to the dataframe
+    labels_df["cost"] = ""
+    
+    for i in range(len(labels_df.index)):
+        # Get the id of the current sample
+        id = labels_df["id"][i]
+        
+        # Load the features of the current sample
+        features = np.load(dataset + "features/" + str(id) + ".npy")
+        
+        # Compute the cost of the current sample
+        cost = cost_function(features)
+        
+        # Store the cost in the dataframe
+        labels_df.at[i, "cost"] = cost
+        
+    # Extract the terrain classes, the linear velocities and the costs
+    costs_df = labels_df[["terrain_class",
+                          "linear_velocity",
+                          "cost"]]
+    
+    return costs_df
+
+def display_traversal_costs(costs_df):
+    """Display the traversal costs of samples. Each terrain class is
+    represented by a different color. The linear velocity is represented on
+    the x-axis and the traversal cost on the y-axis.
+
+    Args:
+        costs_df (dataframe): A dataframe containing the terrain classes, the
+        linear velocities of the robot and the traversal costs
+        (headers: "terrain_class", "linear_velocity", "cost")
+    """
+    # Get the list of the terrain classes
+    labels_unique = list(set(costs_df["terrain_class"]))
+    
+    # Open a figure
+    plt.figure()
+    
+    # Go through the labels
+    for label in labels_unique:
+        
+        # Get the samples of the current terrain class
+        df = costs_df[costs_df["terrain_class"] == label]
+        
+        # If a color is specified for the current terrain class, use it
+        if params.traversal_cost.colors.get(label):
+            plt.scatter(df["linear_velocity"],
+                        df["cost"],
+                        label=label,
+                        color=params.traversal_cost.colors[label])
+        # Otherwise, use the default color
+        else:
+            plt.scatter(df["linear_velocity"],
+                        df["cost"],
+                        label=label)
+
+    plt.legend()
+
+    plt.xlabel("Velocity [m/s]")
+    plt.ylabel("Traversal cost")
+
+
 # Main program
 # The "__main__" flag acts as a shield to avoid these lines to be executed if
 # this file is imported in another one
 if __name__ == "__main__":
     
-    # Test the function
-    FEATURES = {"function": traversalcost.time_features.variance,
+    # Test the functions
+    FEATURES = {"function": traversalcost.features.variance,
                 "params_roll_rate": {},
                 "params_pitch_rate": {},
                 "params_vertical_acceleration": {}}
     
     print(generate_description(FEATURES))
+    
+    costs_df = compute_traversal_costs(
+        dataset="src/traversal_cost/datasets/dataset_write/",
+        cost_function=np.mean
+        )
+    
+    display_traversal_costs(costs_df)
+    plt.show()

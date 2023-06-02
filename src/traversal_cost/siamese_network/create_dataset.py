@@ -40,6 +40,7 @@ plt.rcParams.update({
     'pgf.rcfonts': False,
 })
 import csv
+import shutil
 from sklearn.model_selection import train_test_split
 from matplotlib.widgets import SpanSelector  # To select a region of the plot
 
@@ -123,7 +124,12 @@ class SiameseDatasetBuilder():
         file_labels_writer = csv.writer(file_labels, delimiter=",")
         
         # Write the first row (columns title)
-        headers = ["id", "terrain_class", "linear_velocity"]
+        headers = ["id",
+                   "terrain_class",
+                   "linear_velocity",
+                   "file",
+                   "start_index",
+                   "end_index"]
         file_labels_writer.writerow(headers)
         
         # Go through the bagfiles
@@ -202,7 +208,10 @@ class SiameseDatasetBuilder():
                     # csv file
                     file_labels_writer.writerow([example_name,
                                                  terrain_class,
-                                                 linear_velocity])
+                                                 linear_velocity,
+                                                 file,
+                                                 int(x[i]),
+                                                 int(x[i+1])])
 
                     # Increment the index of the example to label
                     self.example_index += 1
@@ -233,6 +242,61 @@ class SiameseDatasetBuilder():
         file_labels.close()
     
     
+    def labeling_from_file(self, csv_labels, files):
+        """Read the labels from an existing csv file
+
+        Args:
+            files (list): List of bag files
+        """
+        # Open the csv file which contains the labels in read mode
+        file_labels = pd.read_csv(csv_labels,
+                                  converters={"id": str})
+        
+        # Go through the bagfiles
+        for file in files:
+            
+            print("Reading file: " + file + "\n")
+            
+            # Get the labels of the current file
+            labels = file_labels[file_labels["file"] == file]
+            
+            # Open the bag file
+            bag = rosbag.Bag(file)
+            
+            # Define lists to store IMU signals
+            roll_velocity_values = []
+            pitch_velocity_values = []
+            vertical_acceleration_values = []
+
+            # Go through the IMU topic of the bag file and store the signals
+            for _, msg, t in bag.read_messages(topics=[params.robot.IMU_TOPIC]):
+                roll_velocity_values.append(msg.angular_velocity.x)
+                pitch_velocity_values.append(msg.angular_velocity.y)
+                vertical_acceleration_values.append(msg.linear_acceleration.z - 9.81)
+            
+            # Go through the labels
+            for i in range(len(labels.index)):
+                
+                # Get the id of the signal and the start and end indices of the
+                # sub-signals
+                id, _, _, _, xmin, xmax = labels.iloc[i]
+                
+                # Extract features from the signals
+                features = traversalcost.utils.get_features(
+                    roll_velocity_values[xmin:xmax],
+                    pitch_velocity_values[xmin:xmax],
+                    vertical_acceleration_values[xmin:xmax],
+                    params.siamese.FEATURES)
+                    
+                # Save the features in a numpy file
+                np.save(self.dataset_directory + "/features/" +
+                        id + ".npy",
+                        features)
+
+                # Copy the csv file in the dataset directory
+                shutil.copy(csv_labels, self.dataset_directory + "/labels.csv")
+
+
     def find_and_write_pairs(self):
         """
         Find pairs of signals that can be compared based on basic assumptions
@@ -306,7 +370,8 @@ class SiameseDatasetBuilder():
         # Store the train and test splits in csv files
         dataframe_train.to_csv(self.dataset_directory + "/pairs_train.csv", index=False)
         dataframe_test.to_csv(self.dataset_directory + "/pairs_test.csv", index=False)
-        
+    
+    
     def generate_features_description(self):
         """
         Generate a text file that describes how the features are extracted
@@ -332,17 +397,27 @@ class SiameseDatasetBuilder():
 # this file is imported in another one
 if __name__ == "__main__":
     
-    dataset = SiameseDatasetBuilder(name="demo")
+    dataset = SiameseDatasetBuilder(name="to_delete")
     
-    dataset.manual_labeling(
-        files=[
-            "bagfiles/raw_bagfiles/speed_dependency/grass.bag",
-            "bagfiles/raw_bagfiles/speed_dependency/road.bag",
-            "bagfiles/raw_bagfiles/speed_dependency/sand.bag",
-        ])
+    # List of the bag files to be processed
+    files=[
+        "bagfiles/raw_bagfiles/speed_dependency/grass.bag",
+        "bagfiles/raw_bagfiles/speed_dependency/road.bag",
+        "bagfiles/raw_bagfiles/speed_dependency/sand.bag",
+    ]
+    
+    # Choose between manual labeling or labeling from a csv file
+    dataset.manual_labeling(files=files)
+    
+    # If you choose the labeling from a csv file, you must provide the csv
+    # file which contains the labels. It allows us to extract new features
+    # from already labeled signals
+    # dataset.labeling_from_file(
+    #     csv_labels="src/traversal_cost/datasets/dataset_write/labels.csv",
+    #     files=files)
+    
+    dataset.generate_features_description()
     
     dataset.find_and_write_pairs()
     
     dataset.create_train_test_splits()
-    
-    dataset.generate_features_description()

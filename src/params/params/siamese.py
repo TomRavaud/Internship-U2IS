@@ -1,7 +1,7 @@
 import numpy as np
 
 # Import custom packages
-import traversalcost.time_features
+import traversalcost.features
 
 
 #########################################################
@@ -20,7 +20,7 @@ LINEAR_VELOCITIES = [0.2, 0.4, 0.6, 0.8, 1.0]
 # specifying them in dictionaries)
 # (the output of the function must be a numpy array of shape (n,) or a list
 # of length n, n being the number of features)
-FEATURES = {"function": traversalcost.time_features.variance,
+FEATURES = {"function": traversalcost.features.variance,
             "params_roll_rate": {},
             "params_pitch_rate": {},
             "params_vertical_acceleration": {}}
@@ -44,7 +44,8 @@ BATCH_SIZE = 3
 # Number of epochs
 NB_EPOCHS = 10
 
-# The margin used in the loss to avoid the network to learn a trivial solution
+# The margin used in the loss to prevent the network from learning a
+# trivial solution
 MARGIN = 2
 
 # Optimizer parameters
