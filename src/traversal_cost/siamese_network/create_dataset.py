@@ -2,15 +2,15 @@
 Script to build the dataset for the Siamese network. A dataset is a folder
 with the following structure:
 
-dataset_{name}/
-|__features/
-|  |__000.npy
-|  |__001.npy
-|  |__...
-|__labels.csv
-|__pairs.csv
-|__pairs_train.csv
-|__pairs_test.csv
+dataset_{name}
+├── features
+│   ├── 000.npy
+│   ├── 001.npy
+│   └── ...
+├── labels.csv
+├── pairs.csv
+├── pairs_test.csv
+└── pairs_train.csv
 
 where:
 - xxx.npy is a numpy array containing features extracted from the signal
@@ -46,25 +46,8 @@ from matplotlib.widgets import SpanSelector  # To select a region of the plot
 # Custom modules and packages
 import params.siamese
 import params.robot
+import traversalcost.utils
 
-
-def compute_features(roll_velocity_values,
-                     pitch_velocity_values,
-                     vertical_acceleration_values):
-    """Extract features from the signals
-
-    Args:
-        roll_velocity_values (list): List of roll velocity values
-        pitch_velocity_values (list): List of pitch velocity values
-        vertical_acceleration_values (list): List of vertical acceleration
-        values
-
-    Returns:
-        ndarray: Array of features
-    """
-    return np.array([np.var(roll_velocity_values),
-                     np.var(pitch_velocity_values),
-                     np.var(vertical_acceleration_values)])
 
 def print_message():
     """
@@ -81,14 +64,22 @@ class SiameseDatasetBuilder():
     """
     Class to build the dataset for the Siamese network
     """
-    
     def __init__(self, name):
+        """Constructor of the class
+
+        Args:
+            name (string): The name to give to the dataset
+        """
+        # Name of the dataset
+        self.name = name
         
         # Get the absolute path of the current directory
         directory = os.path.abspath(os.getcwd())
 
         # Set the name of the directory which will store the dataset
-        self.dataset_directory = directory + "/src/traversal_cost/datasets/dataset_" + name
+        self.dataset_directory = directory +\
+                                 "/src/traversal_cost/datasets/dataset_" +\
+                                 self.name
         
         try:  # A new directory is created if it does not exist yet
             os.mkdir(self.dataset_directory)
@@ -122,7 +113,6 @@ class SiameseDatasetBuilder():
         Args:
             files (list): List of bag files
         """
-        
         # Initialize the index of the example to label
         self.example_index = 0
         
@@ -195,11 +185,12 @@ class SiameseDatasetBuilder():
                 for i in range(nb_subregions):
 
                     # Extract features from the signals
-                    features = compute_features(
+                    features = traversalcost.utils.get_features(
                         roll_velocity_values[int(x[i]):int(x[i+1])],
                         pitch_velocity_values[int(x[i]):int(x[i+1])],
-                        vertical_acceleration_values[int(x[i]):int(x[i+1])])
-
+                        vertical_acceleration_values[int(x[i]):int(x[i+1])],
+                        params.siamese.FEATURES)
+                    
                     # Give the example a name
                     example_name = f"{self.example_index:03d}"
 
@@ -243,7 +234,11 @@ class SiameseDatasetBuilder():
     
     
     def find_and_write_pairs(self):
-        
+        """
+        Find pairs of signals that can be compared based on basic assumptions
+        (same terrain class or same linear velocity), and write them in a csv
+        file
+        """
         # Open the csv file containing the labels
         labels = pd.read_csv(self.csv_labels, converters={"id": str})
         
@@ -294,7 +289,9 @@ class SiameseDatasetBuilder():
         
     
     def create_train_test_splits(self):
-        
+        """
+        Split the dataset into training and testing sets
+        """
         # Read the CSV file into a Pandas dataframe (read id values as
         # strings to keep leading zeros)
         dataframe = pd.read_csv(self.csv_pairs, converters={"id1": str,
@@ -309,11 +306,33 @@ class SiameseDatasetBuilder():
         # Store the train and test splits in csv files
         dataframe_train.to_csv(self.dataset_directory + "/pairs_train.csv", index=False)
         dataframe_test.to_csv(self.dataset_directory + "/pairs_test.csv", index=False)
+        
+    def generate_features_description(self):
+        """
+        Generate a text file that describes how the features are extracted
+        from the signals
+        """
+        # Open the text file
+        description_file = open(self.dataset_directory +
+                                "/features_description.txt", "w")
+        
+        # Generate the table which contains the description of the features
+        table = traversalcost.utils.generate_description(
+            params.siamese.FEATURES)
+        
+        # Write the table in the text file
+        description_file.write(table)
+        
+        # Close the text file
+        description_file.close()
 
 
+# Main program
+# The "__main__" flag acts as a shield to avoid these lines to be executed if
+# this file is imported in another one
 if __name__ == "__main__":
     
-    dataset = SiameseDatasetBuilder(name="40Hz")
+    dataset = SiameseDatasetBuilder(name="demo")
     
     dataset.manual_labeling(
         files=[
@@ -325,3 +344,5 @@ if __name__ == "__main__":
     dataset.find_and_write_pairs()
     
     dataset.create_train_test_splits()
+    
+    dataset.generate_features_description()

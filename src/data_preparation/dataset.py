@@ -4,18 +4,18 @@ Script to build a dataset for terrain traversability estimation from images
 with the following structure:
 
 dataset_{name}/
-|__images/
-|  |__00000.png
-|  |__00000.tiff
-|  |__00001.png
-|  |__00001.tiff
-|  |__...
-|__images_train/
-|__images_test/
-|__traversal_costs.csv
-|__traversal_costs_train.csv
-|__traversal_costs_test.csv
-|__bins_midpoints.npy
+├── images/
+│   ├── 00000.npy
+│   ├── 00000.tiff
+│   ├── 00001.npy
+│   ├── 00001.tiff
+│   └── ...
+├── images_test/
+├── images_train/
+├── traversal_costs.csv
+├── traversal_costs_test.csv
+├── traversal_costs_train.csv
+└── bins_midpoints.csv
 
 where:
 - xxxxx.png and xxxxx.tiff are the rgb and depth images respectively

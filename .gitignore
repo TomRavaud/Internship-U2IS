@@ -1,6 +1,6 @@
 # Directories to be ignored
 __pycache__/
-datasets/
+dataset_*/
 results/
 pytorch/
 runs/

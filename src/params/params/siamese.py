@@ -1,3 +1,9 @@
+import numpy as np
+
+# Import custom packages
+import traversalcost.time_features
+
+
 #########################################################
 ## Dataset creation parameters for the Siamese network ##
 #########################################################
@@ -8,6 +14,16 @@ ORDERED_TERRAIN_CLASSES = ["road", "sand", "grass"]
 # List of linear velocities sent to the robot when recording IMU signals to
 # design a traversal cost
 LINEAR_VELOCITIES = [0.2, 0.4, 0.6, 0.8, 1.0]
+
+# Describe the features to be extracted from the IMU signals
+# (if the function takes parameters, default values can be overwritten by
+# specifying them in dictionaries)
+# (the output of the function must be a numpy array of shape (n,) or a list
+# of length n, n being the number of features)
+FEATURES = {"function": traversalcost.time_features.variance,
+            "params_roll_rate": {},
+            "params_pitch_rate": {},
+            "params_vertical_acceleration": {}}
 
 
 #############################################
