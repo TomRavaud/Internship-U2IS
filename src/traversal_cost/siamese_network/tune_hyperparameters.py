@@ -277,11 +277,11 @@ study.optimize(objective, n_trials=NB_TRIALS)
 
 # Get the best parameters
 best_params = study.best_params
-found_learning_rate = best_params["lr"]
-found_margin = best_params["margin"]
+# found_learning_rate = best_params["lr"]
+# found_margin = best_params["margin"]
 
-print("Found learning rate: ", found_learning_rate)
-print("Found margin: ", found_margin)
+# print("Found learning rate: ", found_learning_rate)
+# print("Found margin: ", found_margin)
 
 # Close all the previously opened figures
 plt.close("all")

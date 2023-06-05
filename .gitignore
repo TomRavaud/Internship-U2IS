@@ -12,8 +12,8 @@ coffee.jpg
 imagenet_class_labels.txt
 
 Notes.md
-*.png
-*.tiff
+# *.png
+# *.tiff
 
 # Saved model parameters
 *.params
@@ -27,5 +27,7 @@ Notes.md
 # /*.npy
 
 /src/models_development/images_test.py
+
+logs_optuna*/
 
 _*
