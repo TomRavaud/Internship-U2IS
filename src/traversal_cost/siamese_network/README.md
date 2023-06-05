@@ -18,6 +18,8 @@ This folder contains the following files:
 * **loss.py**: the custom loss function to train the network
 * **main.ipynb**: a notebook which gathers all the training steps, from data loading to testing
 * **model.py**: the model used to predict the traversal cost
+* **result.py**: functions used to generate the logs
 * **test.py**: the test function
 * **train.py**: the train function (one epoch)
+* **tune_hyperparameters.py**: a script which used Optuna to tune some training hyperparameters
 * **validate.py**: the validate function (one epoch)

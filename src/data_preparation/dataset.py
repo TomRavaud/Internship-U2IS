@@ -56,7 +56,7 @@ import tf.transformations
 # Custom modules and packages
 import utils.drawing as dw
 import utils.frames as frames
-import traversalcost.fourier.frequency_features as ff
+import traversalcost.fourier as ff
 import params.robot, params.dataset
 import depth.utils as depth
 

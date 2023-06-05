@@ -13,8 +13,8 @@ class SiameseNetworkDataset(Dataset):
     """
     
     def __init__(self,
-                 pairs_file,
-                 features_directory):
+                 pairs_file: str,
+                 features_directory: str):
         """Constructor of the class
 
         Args:
@@ -31,7 +31,7 @@ class SiameseNetworkDataset(Dataset):
         # Initialize the name of the images directory
         self.features_directory = features_directory
         
-    def __len__(self):
+    def __len__(self) -> int:
         """Return the size of the dataset
 
         Returns:
@@ -39,7 +39,7 @@ class SiameseNetworkDataset(Dataset):
         """
         return len(self.pairs_frame)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> tuple:
         """Allow to access a sample by its index
 
         Args:
@@ -60,4 +60,4 @@ class SiameseNetworkDataset(Dataset):
         features2 = np.load(os.path.join(self.features_directory,
                                          id2 + ".npy")).astype(np.float32)
         
-        return features1, features2
+        return features1, features2, id1, id2

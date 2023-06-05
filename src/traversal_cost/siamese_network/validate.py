@@ -2,11 +2,11 @@ from tqdm import tqdm
 import torch
 
 
-def validate(model,
-             device,
-             val_loader,
-             criterion,
-             epoch):
+def validate(model: torch.nn.Module,
+             device: str,
+             val_loader: torch.utils.data.DataLoader,
+             criterion: torch.nn.Module,
+             epoch: int) -> tuple:
     """Validate the model for one epoch
 
     Args:
@@ -17,10 +17,14 @@ def validate(model,
         epoch (int): The current epoch
         
     Returns:
-        double: The validation loss
+        float, float: The validation loss, the validation accuracy
     """
     # Initialize the validation loss
     val_loss = 0.
+    
+    # Initialize the number of correct ranking predictions in order to compute
+    # the accuracy
+    val_correct = 0
     
     # Configure the model for testing
     # (turn off dropout layers, batchnorm layers, etc)
@@ -34,7 +38,7 @@ def validate(model,
     # building the graph)
     with torch.no_grad():
         # Loop over the validation batches
-        for features1, features2 in val_loader_pbar:
+        for features1, features2, _, _ in val_loader_pbar:
 
             # Print the epoch and validation mode
             val_loader_pbar.set_description(f"Epoch {epoch} [val]")
@@ -56,8 +60,14 @@ def validate(model,
             # Accumulate batch loss to average over the epoch
             val_loss += loss.item()
             
-        
+            # Get the number of correct predictions
+            val_correct += torch.sum(
+                predicted_costs1 < predicted_costs2).item()
+            
     # Compute the loss
     val_loss /= len(val_loader)
     
-    return val_loss
+    # Compute the accuracy
+    val_accuracy = 100*val_correct/len(val_loader.dataset)
+    
+    return val_loss, val_accuracy

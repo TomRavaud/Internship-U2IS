@@ -308,7 +308,7 @@ class SiameseDatasetBuilder():
         
         # Get all the possible pairs of elements
         combinations = np.array(list(itertools.combinations(labels["id"], 2)))
-
+        
         # Get indexes the pairs in which the two elements are of different classes AND
         # different velocities OR the two elements are of the same class AND same
         # velocity
@@ -317,7 +317,7 @@ class SiameseDatasetBuilder():
         for i in range(len(combinations)):
 
             index1, index2 = combinations[i]
-
+            
             if (labels.loc[int(index1), "terrain_class"] !=\
                 labels.loc[int(index2), "terrain_class"] and\
                 labels.loc[int(index1), "linear_velocity"] !=\
@@ -325,7 +325,11 @@ class SiameseDatasetBuilder():
                (labels.loc[int(index1), "terrain_class"] ==\
                 labels.loc[int(index2), "terrain_class"] and\
                 labels.loc[int(index1), "linear_velocity"] ==\
-                labels.loc[int(index2), "linear_velocity"]):
+                labels.loc[int(index2), "linear_velocity"]) or\
+               (labels.loc[int(index1), "terrain_class"] ==\
+                labels.loc[int(index2), "terrain_class"] and\
+                np.abs(labels.loc[int(index1), "linear_velocity"] -\
+                labels.loc[int(index2), "linear_velocity"]) > 0.2 + 1e-4):
 
                 pairs_to_remove.append(i)
 
@@ -397,7 +401,7 @@ class SiameseDatasetBuilder():
 # this file is imported in another one
 if __name__ == "__main__":
     
-    dataset = SiameseDatasetBuilder(name="to_delete")
+    dataset = SiameseDatasetBuilder(name="40Hz_dwt_hard")
     
     # List of the bag files to be processed
     files=[
@@ -407,14 +411,14 @@ if __name__ == "__main__":
     ]
     
     # Choose between manual labeling or labeling from a csv file
-    dataset.manual_labeling(files=files)
+    # dataset.manual_labeling(files=files)
     
     # If you choose the labeling from a csv file, you must provide the csv
     # file which contains the labels. It allows us to extract new features
     # from already labeled signals
-    # dataset.labeling_from_file(
-    #     csv_labels="src/traversal_cost/datasets/dataset_write/labels.csv",
-    #     files=files)
+    dataset.labeling_from_file(
+        csv_labels="src/traversal_cost/datasets/dataset_40Hz_variance/labels.csv",
+        files=files)
     
     dataset.generate_features_description()
     

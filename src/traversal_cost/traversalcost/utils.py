@@ -3,6 +3,9 @@ from tabulate import tabulate
 import inspect
 import pandas as pd
 import matplotlib.pyplot as plt
+import torch
+import io
+from PIL import Image
 
 # Import custom packages
 import traversalcost.features
@@ -108,7 +111,8 @@ def generate_description(dict):
 
 
 def compute_traversal_costs(dataset,
-                            cost_function):
+                            cost_function,
+                            to_tensor=False):
     """Compute the traversal cost of each sample in a dataset
 
     Args:
@@ -133,6 +137,10 @@ def compute_traversal_costs(dataset,
         
         # Load the features of the current sample
         features = np.load(dataset + "features/" + str(id) + ".npy")
+        
+        # Convert the features to a tensor if required
+        if to_tensor:
+            features = torch.from_numpy(features).float()
         
         # Compute the cost of the current sample
         cost = cost_function(features)
@@ -161,7 +169,7 @@ def display_traversal_costs(costs_df):
     labels_unique = list(set(costs_df["terrain_class"]))
     
     # Open a figure
-    plt.figure()
+    figure = plt.figure()
     
     # Go through the labels
     for label in labels_unique:
@@ -185,6 +193,16 @@ def display_traversal_costs(costs_df):
 
     plt.xlabel("Velocity [m/s]")
     plt.ylabel("Traversal cost")
+    
+    # Converts the figure to an image
+    image = io.BytesIO()
+    figure.savefig(image, format="png")
+    image.seek(0)
+    
+    # Create a PIL image from the image stream
+    image = Image.open(image)
+    
+    return image
 
 
 # Main program
@@ -201,9 +219,12 @@ if __name__ == "__main__":
     print(generate_description(FEATURES))
     
     costs_df = compute_traversal_costs(
-        dataset="src/traversal_cost/datasets/dataset_write/",
+        dataset="src/traversal_cost/datasets/dataset_40Hz_variance/",
         cost_function=np.mean
         )
     
-    display_traversal_costs(costs_df)
+    image = display_traversal_costs(costs_df)
     plt.show()
+
+    # Save the image
+    # image.save("plot.png", "PNG")
