@@ -16,7 +16,7 @@ import params.robot
 bridge = cv_bridge.CvBridge()
 
 # Open the bag file
-bag = rosbag.Bag("bagfiles/raw_bagfiles/depth/tom_full1.bag")
+bag = rosbag.Bag("bagfiles/raw_bagfiles/depth.bag")
 
 # Loop through the messages in the bag file, read the depth image topic
 for topic, msg, t in bag.read_messages(topics=[params.robot.DEPTH_TOPIC]):
@@ -25,5 +25,5 @@ for topic, msg, t in bag.read_messages(topics=[params.robot.DEPTH_TOPIC]):
     depth_image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
     
     # Save the current depth image as a tiff file
-    cv2.imwrite("src/depth/depth_image.tiff", depth_image)
+    cv2.imwrite("src/depth/depth_image_indoor.tiff", depth_image)
     break

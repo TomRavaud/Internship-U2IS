@@ -3,6 +3,7 @@ from tabulate import tabulate
 import inspect
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import torch
 import io
 from PIL import Image
@@ -10,6 +11,7 @@ from PIL import Image
 # Import custom packages
 import traversalcost.features
 import params.traversal_cost
+import traversalcost.fourier
 
 
 def get_features(roll_rate_values,
@@ -145,6 +147,10 @@ def compute_traversal_costs(dataset,
         # Compute the cost of the current sample
         cost = cost_function(features)
         
+        # Convert the cost to a float if required
+        if to_tensor:
+            cost = cost.item()
+        
         # Store the cost in the dataframe
         labels_df.at[i, "cost"] = cost
         
@@ -155,15 +161,18 @@ def compute_traversal_costs(dataset,
     
     return costs_df
 
-def display_traversal_costs(costs_df):
+def display_traversal_costs(costs_df: pd.DataFrame) -> Image:
     """Display the traversal costs of samples. Each terrain class is
     represented by a different color. The linear velocity is represented on
     the x-axis and the traversal cost on the y-axis.
 
     Args:
-        costs_df (dataframe): A dataframe containing the terrain classes, the
+        costs_df (pd.Dataframe): A dataframe containing the terrain classes, the
         linear velocities of the robot and the traversal costs
         (headers: "terrain_class", "linear_velocity", "cost")
+    
+    Returns:
+        Image: An image of the figure
     """
     # Get the list of the terrain classes
     labels_unique = list(set(costs_df["terrain_class"]))
@@ -205,6 +214,150 @@ def display_traversal_costs(costs_df):
     return image
 
 
+def display_traversal_costs_whiskers(costs_df: pd.DataFrame) -> Image:
+    """Display the traversal costs of samples using whiskers.
+    Each terrain class is represented by a different color.
+    The linear velocity is represented on the x-axis and the
+    traversal cost on the y-axis.
+
+    Args:
+        costs_df (pd.DataFrame): A dataframe containing the terrain classes,
+        the linear velocities of the robot and the traversal costs
+
+    Returns:
+        Image: An image of the figure
+    """
+    
+    # print(costs_df.info(verbose=True))
+    # print(costs_df["cost"].detach().numpy().describe())
+    
+    # costs_df.astype({"cost": "float64"}).dtypes
+    
+    # Get the list of the terrain classes
+    labels_unique = list(set(costs_df["terrain_class"]))
+    
+    # Get the list of the linear velocities
+    velocities_unique = list(set(costs_df["linear_velocity"]))
+    
+    # Open a figure
+    fig, ax = plt.subplots()
+    
+    # Create a list of handles for the legend
+    handles = []
+    
+    # Go through the labels
+    for label in labels_unique:
+        
+        # Get the samples of the current terrain class
+        df = costs_df[costs_df["terrain_class"] == label]
+        
+        # Add a handle for the current terrain class
+        handles.append(mpatches.Patch(color=params.traversal_cost.colors[label],
+                                      label=label))
+        
+        # Go through the linear velocities
+        for velocity in velocities_unique:
+            
+            # Set the properties of the boxplot
+            boxprops = dict(
+                # facecolor=params.traversal_cost.colors[label],
+                facecolor="white",
+                color=params.traversal_cost.colors[label],
+                )
+            medianprops = dict(
+                color=params.traversal_cost.colors[label],
+                )
+            capprops = dict(
+                color=params.traversal_cost.colors[label],
+                )
+            whiskerprops = dict(
+                color=params.traversal_cost.colors[label],
+                )
+            
+            # print(type(df[df["linear_velocity"] == velocity]["cost"].values))
+            
+            # Plot the boxplot
+            ax.boxplot(
+                list(df[df["linear_velocity"] == velocity]["cost"]),
+                notch=0,
+                sym="",
+                positions=[velocity],
+                patch_artist=True,
+                boxprops=boxprops,
+                medianprops=medianprops,
+                capprops=capprops,
+                whiskerprops=whiskerprops,
+                )
+        
+    # Set the limits of the axes
+    ax.set_xlim(np.min(velocities_unique) - 0.2,
+                np.max(velocities_unique) + 0.2)
+    
+    # Set the ticks of the axes
+    ax.set_xticklabels(velocities_unique)
+    
+    # Set the legend
+    ax.legend(handles=handles)
+    
+    # Set the labels of the axes
+    ax.set_xlabel("Velocity [m/s]")
+    ax.set_ylabel("Traversal cost")
+    
+    # Converts the figure to an image
+    image = io.BytesIO()
+    fig.savefig(image, format="png")
+    image.seek(0)
+    
+    # Create a PIL image from the image stream
+    image = Image.open(image)
+    
+    return image
+
+
+def modulo_wrap(signal: list, N: int) -> list:
+    """Wrap a signal by splitting it into blocks of given length and
+    summing the blocks. If the length of the signal is not a multiple of
+    the block length, the last block is padded with zeros.
+    (See https://www.ece.rutgers.edu/~orfanidi/intro2sp/ for more details)
+
+    Args:
+        signal (list): Original signal
+        N (int): Length of the blocks
+
+    Returns:
+        list: Wrapped signal
+    """    
+    # Get the length of the signal
+    L = len(signal)
+    
+    # Create a list of zeros of length N to store the wrapped signal
+    wrapped_signal = [0] * N
+    
+    # Compute the quotient and the remainder of the euclidean division
+    # of L by N 
+    M = L // N
+    r = L % N
+    
+    # Wrap the original signal
+    for n in range(N):
+        
+        # Non-zero part of last block
+        # (if L < N, this is the only block)
+        if n < r:
+            wrapped_signal[n] = signal[M*N + n]
+        
+        # Pad N - L zeros at end if L < N
+        else:
+            wrapped_signal[n] = 0 
+
+        # Remaining blocks
+        # (if L < N, this loop is skipped)
+        for m in range(M - 1, -1, -1):
+            wrapped_signal[n] += signal[m*N + n]
+    
+    return wrapped_signal
+
+
 # Main program
 # The "__main__" flag acts as a shield to avoid these lines to be executed if
 # this file is imported in another one
@@ -216,15 +369,35 @@ if __name__ == "__main__":
                 "params_pitch_rate": {},
                 "params_vertical_acceleration": {}}
     
-    print(generate_description(FEATURES))
+    # print(generate_description(FEATURES))
     
     costs_df = compute_traversal_costs(
         dataset="src/traversal_cost/datasets/dataset_40Hz_variance/",
         cost_function=np.mean
         )
     
-    image = display_traversal_costs(costs_df)
-    plt.show()
+    # costs = display_traversal_costs(costs_df)
+    whiskers = display_traversal_costs_whiskers(costs_df)
+    # Convert the image to grayscale
+    # image_pgm = image.convert("L")
+    # image_pgm.save("traversal_cost_whiskers.pgm")
 
     # Save the image
     # image.save("plot.png", "PNG")
+     
+    # Modulo-N reduction test
+    N = 50
+    
+    # Create dummy signals and wrap them
+    signal = np.random.rand(100)
+    signal_wrapped = modulo_wrap(signal, N)
+    
+    signal2 = np.random.rand(137)
+    signal2_wrapped = modulo_wrap(signal2, N)
+    
+    # Apply the FFT to the signals and plot the results
+    # traversalcost.fourier.fft(signal, 40, plot=True)
+    # traversalcost.fourier.fft(signal_wrapped, 40, plot=True)
+    # traversalcost.fourier.fft(signal2, 40, plot=True)
+    
+    plt.show()

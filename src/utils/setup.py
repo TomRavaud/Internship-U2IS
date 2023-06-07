@@ -6,7 +6,7 @@ DESCRIPTION = 'Utils Python package'
 # Setting up
 setup(
        # The name must match the folder name 'utils'
-        name="utils", 
+        name="utilities", 
         version=VERSION,
         author="Tom Ravaud",
         author_email="<tom.ravaud@eleves.enpc.fr>",

@@ -146,6 +146,12 @@ def generate_log(dataset_directory: str,
     # Save the traversal cost graph
     cost_graph.save(results_directory + "/traversal_cost_graph.png", "PNG")
     
+    # Display the whiskers
+    cost_whiskers = traversalcost.utils.display_traversal_costs_whiskers(costs_df)
+    
+    # Save the whiskers
+    cost_whiskers.save(results_directory + "/traversal_cost_whiskers.png", "PNG")
+    
     # Save the model parameters
     torch.save(model.state_dict(),
                results_directory + "/" + params.siamese.PARAMS_FILE)

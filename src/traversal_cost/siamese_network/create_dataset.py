@@ -273,7 +273,7 @@ class SiameseDatasetBuilder():
                 roll_velocity_values.append(msg.angular_velocity.x)
                 pitch_velocity_values.append(msg.angular_velocity.y)
                 vertical_acceleration_values.append(msg.linear_acceleration.z - 9.81)
-            
+                 
             # Go through the labels
             for i in range(len(labels.index)):
                 
@@ -318,6 +318,9 @@ class SiameseDatasetBuilder():
 
             index1, index2 = combinations[i]
             
+            # NOTE: Only the pairs with consecutive speeds are considered
+            # because they are harder to distinguish, and make the training
+            # more difficult
             if (labels.loc[int(index1), "terrain_class"] !=\
                 labels.loc[int(index2), "terrain_class"] and\
                 labels.loc[int(index1), "linear_velocity"] !=\
@@ -401,7 +404,7 @@ class SiameseDatasetBuilder():
 # this file is imported in another one
 if __name__ == "__main__":
     
-    dataset = SiameseDatasetBuilder(name="40Hz_dwt_hard")
+    dataset = SiameseDatasetBuilder(name="40Hz_wrap_fft_hard")
     
     # List of the bag files to be processed
     files=[

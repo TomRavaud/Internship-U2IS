@@ -46,6 +46,21 @@ DENOISE_THR = 0.005  # [rad/s | m/s^2]
 DENOISING_MODE = "soft"
 
 
+#############
+## Fourier ##
+#############
+
+# Window size for the mean filter
+WINDOW_SIZE = 5
+
+
+###########
+## Other ##
+###########
+
+# Length of the blocks the original signal is split into, then to be wrapped
+N = 50
+
 
 # NOTE: To be modified
 # Number of signals to characterize a patch
