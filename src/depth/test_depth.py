@@ -32,7 +32,9 @@ bilateral_filter = {"d": 5,
                     "sigmaSpace": 2}
 
 # Compute the surface normals
-depth.compute_normal(K=params.robot.K, bilateral_filter=bilateral_filter)
+depth.compute_normal(K=params.robot.K,
+                     bilateral_filter=bilateral_filter,
+                     gradient_threshold=10)
 
 # Display the normal image
 depth.display_normal()

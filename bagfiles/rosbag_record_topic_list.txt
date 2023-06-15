@@ -1,1 +1,0 @@
-/zed_node/rgb/image_rect_color /zed_node/temperature/imu /imu/data /imu_odometry /odom /odometry/filtered /odometry_filtered /odometry/filtered_map /husky_velocity_controller/odom

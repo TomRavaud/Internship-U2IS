@@ -5,10 +5,12 @@ with the following structure:
 
 dataset_{name}/
 ├── images/
-│   ├── 00000.npy
-│   ├── 00000.tiff
-│   ├── 00001.npy
-│   ├── 00001.tiff
+│   ├── 00000.png
+│   ├── 00000d.tiff
+│   ├── 00000n.tiff
+│   ├── 00001.png
+│   ├── 00001d.tiff
+│   ├── 00001n.tiff
 │   └── ...
 ├── images_test/
 ├── images_train/
@@ -18,7 +20,8 @@ dataset_{name}/
 └── bins_midpoints.csv
 
 where:
-- xxxxx.png and xxxxx.tiff are the rgb and depth images respectively
+- xxxxx.png, xxxxxd.tiff and xxxxxn.tiff are the rgb, depth and the normals
+images respectively
 - images_train/ and images_test/ are the training and testing sets of images
 - traversal_costs.csv is a csv file containing the traversal costs associated
 with the images, the traversability labels (obtained from the continuous
@@ -39,13 +42,16 @@ from PIL import Image
 from scipy.fft import rfft, rfftfreq
 from scipy.ndimage import uniform_filter1d
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, RobustScaler, OneHotEncoder, KBinsDiscretizer
+from sklearn.preprocessing import StandardScaler,\
+                                  RobustScaler,\
+                                  OneHotEncoder,\
+                                  KBinsDiscretizer
 from sklearn.model_selection import train_test_split
 import shutil
 import pandas as pd
 import matplotlib.pyplot as plt
 plt.rcParams['text.usetex'] = True  # Render Matplotlib text with Tex
-import pywt
+import tifffile
 
 # ROS Python libraries
 import cv_bridge
@@ -56,48 +62,27 @@ import tf.transformations
 # Custom modules and packages
 import utils.drawing as dw
 import utils.frames as frames
-import traversalcost.fourier as ff
-import params.robot, params.dataset
-import depth.utils as depth
+from depth.utils import Depth
+import traversalcost.utils
+import traversalcost.traversal_cost
+import params.robot
+import params.dataset
+import params.traversal_cost
+import params.learning
 
 
-def is_inside_image(image, point):
-    """Check if a point is inside an image"""
-    x, y = point
-    return (x >= 0) and (x < image.shape[1]) and (y >= 0) and (y < image.shape[0])
+def is_bag_healthy(bag: str) -> bool:
+    """Check if a bag file is healthy
 
-def compute_features(signal, rate):
-    
-    # Moving average
-    signal_filtered = uniform_filter1d(signal, size=3)
-    
-    # Variance
-    signal_variance = np.var(signal_filtered)
-    
-    # Apply windowing because the signal is not periodic
-    hanning_window = np.hanning(len(signal))
-    signal_mean_windowing = signal_filtered*hanning_window
-    
-    # Discrete Fourier transform
-    signal_magnitudes = np.abs(rfft(signal_mean_windowing))
-    frequencies = rfftfreq(len(signal), rate)
-    
-    # Energies
-    signal_energy = ff.spectral_energy(signal_magnitudes)
-    
-    # Spectral centroids
-    signal_sc = ff.spectral_centroid(signal_magnitudes, frequencies)
-    
-    # Spectral spread
-    signal_ss = ff.spectral_spread(signal_magnitudes, frequencies, signal_sc)
-    
-    return np.array([signal_variance, signal_energy, signal_sc, signal_ss])
+    Args:
+        bag (str): Path to the bag file
 
-def is_bag_healthy(bag):
-    
+    Returns:
+        bool: True if the bag file is healthy, False otherwise
+    """    
     # Get the bag file duration
     duration = bag.get_end_time() - bag.get_start_time()  # [seconds]
-    
+
     for topic, frequency in [(params.robot.IMAGE_TOPIC,
                               params.robot.CAMERA_SAMPLE_RATE),
                              (params.robot.DEPTH_TOPIC,
@@ -106,35 +91,66 @@ def is_bag_healthy(bag):
                               params.robot.ODOM_SAMPLE_RATE),
                              (params.robot.IMU_TOPIC,
                               params.robot.IMU_SAMPLE_RATE)]:
-        
+
         # Get the number of messages in the bag file
-        nb_message = bag.get_message_count(topic)
+        nb_messages = bag.get_message_count(topic)
         
         # Check if the number of messages is consistent with the frequency
-        if np.abs(nb_message - frequency*duration)/(frequency*duration) > 0.01:
+        if np.abs(nb_messages - frequency*duration)/(frequency*duration) >\
+                params.dataset.NB_MESSAGES_THR:
             return False
-        
+
     return True
 
 
-class DatasetBuilder(): 
-    
+def is_inside_image(image: np.ndarray, point: np.ndarray) -> bool:
+    """Check if a point is inside an image
+
+    Args:
+        image (np.ndarray): The image
+        point (np.ndarray): The point
+
+    Returns:
+        bool: True if the point is inside the image, False otherwise
+    """    
+    x, y = point
+    return (x >= 0) and\
+           (x < image.shape[1]) and\
+           (y >= 0) and\
+           (y < image.shape[0])\
+
+
+class DatasetBuilder():
+    """
+    Class to build a terrain traversability dataset from ROS bag files
+    """    
     # Initialize the bridge between ROS and OpenCV images
     bridge = cv_bridge.CvBridge()
-
+    
+    # Generate a dummy signal and extract the features
+    dummy_signal = np.random.rand(100)
+    dummy_features = params.dataset.FEATURES["function"](dummy_signal)
+    
+    # Get the size of the features vector
+    features_size = 3*len(dummy_features)
+    
     # Create an array to store the features from which the traversal cost
     # is designed
-    features = np.zeros((10000, params.dataset.NB_FEATURES))
+    features = np.zeros((params.dataset.NB_IMAGES_MAX, features_size))
     
     # Create an array to store the velocities
-    velocities = np.zeros((10000, 1))
+    velocities = np.zeros((params.dataset.NB_IMAGES_MAX, 1))
     
     # Create an array to store the pitch rate variance
-    pitch_rate_variance = np.zeros((10000, 1))
+    pitch_rate_variance = np.zeros((params.dataset.NB_IMAGES_MAX, 1))
     
     
-    def __init__(self, name):
-        
+    def __init__(self, name: str) -> None:
+        """Constructor of the class
+
+        Args:
+            name (str): Name of the dataset
+        """         
         # Get the absolute path of the current directory
         directory = os.path.abspath(os.getcwd())
 
@@ -148,8 +164,8 @@ class DatasetBuilder():
         except OSError:  # Display a message if it already exists and quit
             print("Existing directory " + self.dataset_directory)
             print("Aborting to avoid overwriting data\n")
-            sys.exit(1)  # Stop the execution of the script
-            # pass
+            # sys.exit(1)  # Stop the execution of the script
+            pass
         
         # Create a sub-directory to store images
         self.images_directory = self.dataset_directory + "/images"
@@ -163,54 +179,81 @@ class DatasetBuilder():
         
         # Create a csv file to store the traversal costs
         self.csv_name = self.dataset_directory + "/traversal_costs.csv"
-        
+     
     
-    def write_images_and_compute_features(self, files):
-        
+    def write_images_and_compute_features(self, files: list) -> None:
+        """Write images and compute features from a list of bag files
+
+        Args:
+            files (list): List of bag files
+        """        
         # Initialize the index of the image and the trajectory
         index_image = 0
         index_trajectory = 0
         
-        # Go through multiple bag files
+        # Create a list to store bag files paths
+        bag_files = []
+        
+        # Go through the list of files
         for file in files:
+            
+            # Check if the file is a bag file
+            if os.path.isfile(file) and file.endswith(".bag"):
+                bag_files.append(file)
+            
+            # If the path links to a directory, go through the files inside it
+            elif os.path.isdir(file):
+                bag_files.extend(
+                    [file + f for f in os.listdir(file) if f.endswith(".bag")])
+        
+        # Go through multiple bag files
+        for file in bag_files:
             
             print("Reading file: " + file)
             
             # Open the bag file
             bag = rosbag.Bag(file)
             
+            # Check if the bag file is healthy (i.e. if it contains all the
+            # topics and if the number of messages is consistent with the
+            # sampling rate)
             if not is_bag_healthy(bag):
                 print("File " + file + " is incomplete. Skipping...")
                 continue
-            
             
             # Go through the image topic
             for _, msg_image, t_image in tqdm(
                 bag.read_messages(topics=[params.robot.IMAGE_TOPIC]),
                 total=bag.get_message_count(params.robot.IMAGE_TOPIC)):
                 
+                # Define a variable to store the depth image
                 msg_depth = None
-                TIME_DELTA = 0.05
                 
                 # Keep only the images that can be matched with a depth image
                 if list(bag.read_messages(
                     topics=[params.robot.DEPTH_TOPIC],
-                    start_time=t_image - rospy.Duration(TIME_DELTA),
-                    end_time=t_image + rospy.Duration(TIME_DELTA))):
+                    start_time=t_image - rospy.Duration(
+                        params.dataset.TIME_DELTA),
+                    end_time=t_image + rospy.Duration(
+                        params.dataset.TIME_DELTA))):
                     
                     # Find the depth image whose timestamp is closest to that
                     # of the rgb image
-                    min_t = TIME_DELTA
+                    min_t = params.dataset.TIME_DELTA
                     
+                    # Go through the depth topic
                     for _, msg_depth_i, t_depth in bag.read_messages(
                         topics=[params.robot.DEPTH_TOPIC],
-                        start_time=t_image - rospy.Duration(TIME_DELTA),
-                        end_time=t_image + rospy.Duration(TIME_DELTA)):
+                        start_time=t_image - rospy.Duration(params.dataset.TIME_DELTA),
+                        end_time=t_image + rospy.Duration(params.dataset.TIME_DELTA)):
                         
+                        # Keep the depth image whose timestamp is closest to
+                        # that of the rgb image
                         if np.abs(t_depth.to_sec()-t_image.to_sec()) < min_t:
                             min_t = np.abs(t_depth.to_sec() - t_image.to_sec())
                             msg_depth = msg_depth_i
                 
+                # If no depth image is found, skip the current image
                 else:
                     continue
                     
@@ -239,18 +282,28 @@ class DatasetBuilder():
                 # Compute the inverse transform
                 ROBOT_TO_WORLD = frames.inverse_transform_matrix(WORLD_TO_ROBOT)
 
-                # Initialize an array to store the previous front wheels
+                # Define an array to store the previous front wheels
                 # coordinates in the image
                 points_image_old = None
 
                 # Define a variable to store the previous timestamp
                 t_odom_old = None
                 
+                # Define an array to store the previous robot position in the
+                # world frame
                 point_world_old = None
+                
+                # Define a variable to store the distance travelled by the
+                # robot between the current robot position and the previous
+                # one
                 distance = 0
                 
+                # Create a list to store the robot velocities on the next
+                # rectangular patch
                 x_velocity = []
                 
+                # Initialize the number of rectangles extracted from the
+                # current image
                 nb_rectangles = 0
 
                 # Read the odometry measurement for T second(s)
@@ -258,10 +311,6 @@ class DatasetBuilder():
                     topics=[params.robot.ODOM_TOPIC],
                     start_time=t_odom,
                     end_time=t_odom+rospy.Duration(params.dataset.T))):
-
-                    # Keep only an odometry measurement every dt second(s)
-                    # if i % self.div != 0:
-                    #     continue
 
                     # Store the 2D coordinates of the robot position in
                     # the world frame
@@ -327,18 +376,23 @@ class DatasetBuilder():
                         # Draw the points on the image
                         # image = dw.draw_points(image, points_image)
 
+                        # Set the previous points to the current ones
                         point_world_old = point_world
                         points_image_old = points_image
                         t_odom_old = t_odom
                         continue
-                        
+                    
+                    # Compute the distance traveled by the robot between
+                    # the current robot position and the previous one
                     distance = np.linalg.norm(point_world -
                                               point_world_old)
                     
                     # Get the linear velocity on x axis
                     x_velocity.append(msg_odom.twist.twist.linear.x)
                     
-                    
+                    # If the distance is greater than the threshold and
+                    # the number of rectangles extracted from the current
+                    # image is less than the maximum number of rectangles
                     if distance > params.dataset.PATCH_DISTANCE and \
                        nb_rectangles < params.dataset.NB_RECTANGLES_MAX:
                     
@@ -441,12 +495,8 @@ class DatasetBuilder():
                         image_to_save = image[min_y_rectangle:max_y_rectangle,
                                               min_x_rectangle:max_x_rectangle]
                         
-                        # print("Image shape: ", image_to_save.shape)
-                        # print("Image ratio: ", image_to_save.shape[1]/image_to_save.shape[0])
-                        # print("Image points: ", points_image)
-                        
-                        # cv2.imshow('image', image_to_save)
-                        # cv2.waitKey(0)
+                        # cv2.imshow('image', cv2.resize(image, (1280, 720)))
+                        # cv2.waitKey(2)
                         
                         # Convert the image from BGR to RGB
                         image_to_save = cv2.cvtColor(image_to_save,
@@ -454,61 +504,52 @@ class DatasetBuilder():
 
                         # Make a PIL image
                         image_to_save = Image.fromarray(image_to_save)
-
                         # Give the image a name
                         image_name = f"{index_image:05d}.png"
-
                         # Save the image in the correct directory
-                        image_to_save.save(self.images_directory + "/" + image_name, "PNG")
+                        image_to_save.save(self.images_directory +
+                                           "/" + image_name, "PNG")
                         
                         # Extract the rectangular region of interest from
                         # the original depth image
-                        depth_image_to_save = depth_image[min_y_rectangle:max_y_rectangle,
-                                                          min_x_rectangle:max_x_rectangle].copy()
+                        depth_image_crop = depth_image[
+                            min_y_rectangle:max_y_rectangle,
+                            min_x_rectangle:max_x_rectangle]
                         
-                        # depth_image_example = cv2.imread("/home/tom/Traversability-Tom/Internship-U2IS/WuManchu_0360.png", cv2.IMREAD_ANYDEPTH)
+                        # Create a Depth object
+                        depth = Depth(depth_image_crop.copy())
                         
-                        # normals_example = depth.compute_normals(depth_image_example)
+                        # Compute the surface normals
+                        depth.compute_normal(
+                            K=params.robot.K,
+                            bilateral_filter=params.dataset.BILATERAL_FILTER,
+                            gradient_threshold=params.dataset.GRADIENT_THR)
                         
-                        # normals_example = depth.convert_range(normals_example, 0, 1, 0, 255).astype(np.uint8)
-                        # cv2.imshow('normals', normals_example)
-                        # cv2.waitKey(0)
-                        
-                        # normals = depth.compute_normals(depth_image_to_save)
-                        
-                        # normals = depth.fill_nan_inf(normals)
-                        
-                        # normals = depth.convert_range(normals, 0, np.max(normals), 0, 255).astype(np.uint8)
-                        # cv2.imshow('normals', normals)
-                        # cv2.waitKey(0)
-                        
-                        # Replace NaN and Inf values (missing information) by a default value
-                        depth_image_to_save = depth.fill_nan_inf(depth_image_to_save)
-                        
-                        # print(depth_image_to_save)
-                        
-                        # cv2.imshow("depth", depth.convert_range(depth_image_to_save,
-                        #                                         0.7, 2, 0, 255).astype(np.uint8))
-                        # cv2.waitKey(0)
-                        
-                        # Make a PIL image
-                        depth_image_to_save = Image.fromarray(depth_image_to_save)
+                        depth.display_depth()
+                        depth.display_normal()
                         
                         # Give the depth image a name
-                        depth_image_name = f"{index_image:05d}.tiff"
-                        
+                        depth_image_name = f"{index_image:05d}d.tiff"
                         # Save the depth image in the correct directory
-                        depth_image_to_save.save(self.images_directory + "/" + depth_image_name, "TIFF")
+                        tifffile.imwrite(self.images_directory +
+                                         "/" + depth_image_name,
+                                         depth.get_depth())
+                        
+                        # Give the normal map a name
+                        normal_map_name = f"{index_image:05d}n.tiff"
+                        # Save the normal map in the correct directory
+                        tifffile.imwrite(self.images_directory +
+                                         "/" + normal_map_name,
+                                         depth.get_normal())
 
+                        # Increment the number of rectangular images extracted
+                        # from the image
                         nb_rectangles += 1
                         
-                        # Create lists to store all the roll, pitch rate
-                        # measurements within the dt second(s) interval
+                        # Define lists to store IMU signals
                         roll_velocity_values = []
                         pitch_velocity_values = []
-
-                        # Create a list to store vertical acceleration values
-                        z_acceleration_values = []
+                        vertical_acceleration_values = []
                         
                         # Read the IMU measurements within the dt second(s)
                         # interval
@@ -523,105 +564,51 @@ class DatasetBuilder():
                                 msg_imu.angular_velocity.x)
                             pitch_velocity_values.append(
                                 msg_imu.angular_velocity.y)
-                            z_acceleration_values.append(
+                            vertical_acceleration_values.append(
                                 msg_imu.linear_acceleration.z - 9.81)
-
-                        # print("roll: ", len(roll_velocity_values))
-                        # print("pitch: ", np.var(pitch_velocity_values))
-                        # print("z acceleration: ", len(z_acceleration_values))
-                        # print("x velocity: ", np.mean(x_velocity))
                         
+                        
+                        # Extract features from the IMU signals and fill the
+                        # features array
+                        self.features[index_image] =\
+                            traversalcost.utils.get_features(
+                                roll_velocity_values,
+                                pitch_velocity_values,
+                                vertical_acceleration_values,
+                                params.dataset.FEATURES)
+
                         # Compute the variance of the pitch rate signal
                         self.pitch_rate_variance[index_image] = np.var(pitch_velocity_values)
 
-                        # Pad the signals if they are too short
-                        if len(roll_velocity_values) < params.dataset.SIGNAL_MIN_LENGTH:
-                            pad = np.ceil((params.dataset.SIGNAL_MIN_LENGTH - len(roll_velocity_values))/2)
-
-                            roll_velocity_values = pywt.pad(
-                                roll_velocity_values,
-                                pad_widths=pad,
-                                mode=params.dataset.padding_mode)
-                            pitch_velocity_values = pywt.pad(
-                                pitch_velocity_values,
-                                pad_widths=pad,
-                                mode=params.dataset.padding_mode)
-                            z_acceleration_values = pywt.pad(
-                                z_acceleration_values,
-                                pad_widths=pad,
-                                mode=params.dataset.padding_mode)
-                            
-                        # Apply discrete wavelet transform
-                        # approximation = coefficients[0]
-                        # detail = coefficients[1:]
-                        roll_coefficients  = pywt.wavedec(
-                            roll_velocity_values,
-                            level=params.dataset.NB_LEVELS,
-                            wavelet=params.dataset.WAVELET)
-
-                        pitch_coefficients  = pywt.wavedec(
-                            pitch_velocity_values,
-                            level=params.dataset.NB_LEVELS,
-                            wavelet=params.dataset.WAVELET)
-
-                        z_acceleration_coefficients  = pywt.wavedec(
-                            z_acceleration_values,
-                            level=params.dataset.NB_LEVELS,
-                            wavelet=params.dataset.WAVELET)
-
-                        # De-noising
-                        for j in range(1, len(roll_coefficients)):
-                            roll_coefficients[j] = pywt.threshold(
-                                roll_coefficients[j],
-                                value=params.dataset.DENOISE_THR,
-                                mode="soft")
-                            pitch_coefficients[j] = pywt.threshold(
-                                pitch_coefficients[j],
-                                value=params.dataset.DENOISE_THR,
-                                mode="soft")
-                            z_acceleration_coefficients[j] = pywt.threshold(
-                                z_acceleration_coefficients[j],
-                                value=params.dataset.DENOISE_THR,
-                                mode="soft")
-                            
-                        # Fill the features array
-                        for j in range(len(roll_coefficients)):
-                            self.features[index_image, j] = np.var(
-                                roll_coefficients[j])
-
-                        for j in range(len(pitch_coefficients)):
-                            self.features[index_image,
-                                     len(roll_coefficients)+j] = np.var(
-                                         pitch_coefficients[j])
-
-                        for j in range(len(z_acceleration_coefficients)):
-                            self.features[index_image,
-                                     len(roll_coefficients)
-                                     +len(pitch_coefficients)+j] = np.var(
-                                         z_acceleration_coefficients[j])
-                        
                         # Compute the mean velocity on the current patch
                         self.velocities[index_image] = np.mean(x_velocity)
                         
+                        #FIXME: to keep? (RNN)
                         # self.features[index_image, 13] = index_trajectory
                         # self.features[index_image, 14] = t_image.to_sec() 
 
+                        # Increment the index of the current image
                         index_image += 1
                         
+                        # Reset the list of x velocities
                         x_velocity = []
                         
+                        # Update the old values
                         point_world_old = point_world
                         points_image_old = points_image
                         t_odom_old = t_odom
 
                         # Display the image
-                        # cv2.imshow("Image", image)
-                        # cv2.waitKey()
+                        cv2.imshow("Image", cv2.resize(image, (1280, 720)))
+                        cv2.waitKey()
                     
+                    # Go to the next image if the maximum number of rectangular
+                    # images extracted has been reached
                     elif nb_rectangles == params.dataset.NB_RECTANGLES_MAX:
                         break
- 
-
+                
+                #FIXME: to keep? (RNN)
+                # Increment the index of the current trajectory
                 index_trajectory += 1
 
             # Close the bag file
@@ -630,104 +617,31 @@ class DatasetBuilder():
         # Keep only the rows that are not filled with zeros
         self.features = self.features[np.any(self.features, axis=1)]
         self.velocities = self.velocities[np.any(self.velocities, axis=1)]
-        self.pitch_rate_variance = self.pitch_rate_variance[np.any(self.pitch_rate_variance, axis=1)]
-        
+        self.pitch_rate_variance = self.pitch_rate_variance[
+            np.any(self.pitch_rate_variance, axis=1)]
+    
+    
     def compute_traversal_costs(self):
-         
-        # # costs = self.features[:, 8, np.newaxis]
-        # # self.features = self.features[:, [2, 6, 10]]
-        # # self.features = self.features[:, [0, 4, 8]]
-        # # features = self.features[:, [0, 2, 4, 6, 8, 10]]
         
-        # # Scale the dataset
-        # scaler = StandardScaler()
-        # features_scaled = scaler.fit_transform(self.features)
-
-        # # Apply PCA
-        # pca = PCA(n_components=2)
-        # costs = pca.fit_transform(features_scaled)
+        # Load a model
+        model = traversalcost.traversal_cost.SiameseNetwork(
+            input_size=self.features_size)
         
-        # # Display the coefficients of the first principal component
-        # plt.matshow(pca.components_, cmap="viridis")
-        # plt.colorbar()
-        # plt.xticks(range(12),
-        #            [
-        #                "var approx [roll]",
-        #                "var lvl 1 [roll]",
-        #                "var lvl 2 [roll]",
-        #                "var lvl 3 [roll]",
-        #                "var approx [pitch]",
-        #                "var lvl 1 [pitch]",
-        #                "var lvl 2 [pitch]",
-        #                "var lvl 3 [pitch]",
-        #                "var approx [z acc]",
-        #                "var lvl 1 [z acc]",
-        #                "var lvl 2 [z acc]",
-        #                "var lvl 3 [z acc]",
-        #             ],
-        #            rotation=60,
-        #            ha="left")
-        # plt.xlabel("Feature")
-        # plt.ylabel("Principal component 1")
-        # plt.title("First principal component coefficients")
+        # Compute the costs with the model
+        costs = traversalcost.traversal_cost.apply_model(
+            features=self.features,
+            model=model,
+            params=params.dataset.SIAMESE_PARAMS,
+            device=params.dataset.DEVICE)
         
-        # dataframe = pd.DataFrame(costs, columns=["pc1", "pc2"])
-        # # dataframe["velocity"] = velocities
-
-        # plt.figure()
-
-        # plt.scatter(dataframe["pc1"],
-        #             dataframe["pc2"],
-        #             c=self.velocities[:, 0],
-        #             cmap="jet")
-        
-        # plt.colorbar()
-
-        # plt.xlabel("Principal component 1")
-        # plt.ylabel("Principal component 2")
-        
-        # # robust_scaler = RobustScaler()
-        # # normalized_costs = robust_scaler.fit_transform(costs)
-        
-        # # Polar
-        # x = costs[:, 0]
-        # x = x - np.min(x)
-        # y = costs[:, 1]
-        # r = np.sqrt(x**2 + y**2)
-        # theta = np.arctan(y/(x+1e-3))
-        # costs = r*np.sin((theta + np.pi/2)/2)
-        
-        # # Add an axis
-        # costs = costs[:, None]
-        
-        # # Transform the costs to make the distribution closer
-        # # to a Gaussian distribution
-        # # normalized_costs = np.log(costs - np.min(costs) + 1)
-        # normalized_costs = costs
-        
-        # # Create uniform bins
-        # # nb_bins = 20
-        # # bins = np.linspace(0, np.max(normalized_costs) + 1e-2, nb_bins+1)
-        
-        # # Distribution of the dataset
-        # # plt.hist(normalized_costs, bins)
-        
-        # # Apply uniform binning (classes: from 0 to nb_bins - 1)
-        # # digitized_costs = np.digitize(normalized_costs, bins) - 1
-        
-        # # # Apply one-hot encoding
-        # # one_hot_encoder = OneHotEncoder()
-        # # one_hot_costs = one_hot_encoder.fit_transform(digitized_costs).toarray()
-        
-        normalized_costs = self.pitch_rate_variance
-        
+        # costs = self.pitch_rate_variance
         
         # Apply K-means binning
         discretizer = KBinsDiscretizer(
-            n_bins=params.dataset.NB_BINS,
+            n_bins=params.traversal_cost.NB_BINS,
             encode="ordinal",
-            strategy=params.dataset.BINNING_STRATEGY)
-        digitized_costs = np.int32(discretizer.fit_transform(normalized_costs))
+            strategy=params.traversal_cost.BINNING_STRATEGY)
+        digitized_costs = np.int32(discretizer.fit_transform(costs))
         
         # Get the edges and midpoints of the bins
         bins_edges = discretizer.bin_edges_[0]
@@ -737,16 +651,19 @@ class DatasetBuilder():
         np.save(self.dataset_directory+"/bins_midpoints.npy", bins_midpoints)
         
         plt.figure()
-        plt.hist(normalized_costs, bins_edges, lw=1, ec="magenta", fc="blue")
+        plt.hist(costs, bins_edges, lw=1, ec="magenta", fc="blue")
         plt.title("Traversal cost binning")
         plt.xlabel("Traversal cost")
         plt.ylabel("Samples")
         plt.show()
         
-        return normalized_costs, digitized_costs
+        return costs, digitized_costs
 
-    def write_traversal_costs(self):
-        
+
+    def write_traversal_costs(self) -> None:
+        """
+        Write the traversal costs in a csv file.
+        """
         # Open the file in the write mode
         file_costs = open(self.csv_name, "w")
 
@@ -786,7 +703,11 @@ class DatasetBuilder():
         # Close the csv file
         file_costs.close()
 
-    def create_train_test_splits(self):
+
+    def create_train_test_splits(self) -> None:
+        """
+        Split the dataset into training and testing sets.
+        """
         # Create a sub-directory to store train images
         train_directory = self.dataset_directory + "/images_train"
         os.mkdir(train_directory)
@@ -797,46 +718,62 @@ class DatasetBuilder():
         os.mkdir(test_directory)
         print(test_directory + " folder created\n")
         
-        train_size = 0.85  # 85% of the data will be used for training
-        
         # Read the CSV file into a Pandas dataframe (read image_id values as
         # strings to keep leading zeros)
         dataframe = pd.read_csv(self.csv_name, converters={"image_id": str})
         
         # Split the dataset randomly into training and testing sets
-        dataframe_train, dataframe_test = train_test_split(dataframe, train_size=train_size)
-        # dataframe_train, dataframe_test = train_test_split(dataframe,
-        #                                                    train_size=train_size,
-        #                                                    stratify=dataframe["traversability_label"])
+        dataframe_train, dataframe_test =\
+            train_test_split(dataframe,
+                             train_size=params.learning.TRAIN_SIZE +
+                                        params.learning.VAL_SIZE,
+                            #  stratify=dataframe["traversability_label"]
+                             )
         
         # Count the number of samples per class
-        train_distribution = dataframe_train["traversability_label"].value_counts()
-        test_distribution = dataframe_test["traversability_label"].value_counts()
+        train_distribution =\
+            dataframe_train["traversability_label"].value_counts()
+        test_distribution =\
+            dataframe_test["traversability_label"].value_counts()
         
-        plt.bar(train_distribution.index, train_distribution.values, fc="blue", label="train")
-        plt.bar(test_distribution.index, test_distribution.values, fc="orange", label="test")
+        plt.bar(train_distribution.index,
+                train_distribution.values,
+                fc="blue",
+                label="train")
+        plt.bar(test_distribution.index,
+                test_distribution.values,
+                fc="orange",
+                label="test")
         plt.legend()
         plt.title("Train and test sets distribution")
         plt.xlabel("Traversability label")
         plt.ylabel("Samples")
         plt.show()
 
-        # Iterate over each row of the training set and copy the images to the training directory
+        # Iterate over each row of the training set and copy the images to the
+        # training directory
         for _, row in dataframe_train.iterrows():
             image_file = os.path.join(self.images_directory, row["image_id"])
             shutil.copy(image_file + ".png", train_directory)
-            shutil.copy(image_file + ".tiff", train_directory)
+            shutil.copy(image_file + "d.tiff", train_directory)
+            shutil.copy(image_file + "n.tiff", train_directory)
 
-        # Iterate over each row of the testing set and copy the images to the testing directory
+        # Iterate over each row of the testing set and copy the images to the
+        # testing directory
         for _, row in dataframe_test.iterrows():
             image_file = os.path.join(self.images_directory, row["image_id"])
             shutil.copy(image_file + ".png", test_directory)
-            shutil.copy(image_file + ".tiff", test_directory)
+            shutil.copy(image_file + "d.tiff", test_directory)
+            shutil.copy(image_file + "n.tiff", test_directory)
         
         # Store the train and test splits in csv files
-        dataframe_train.to_csv(self.dataset_directory + "/traversal_costs_train.csv", index=False)
-        dataframe_test.to_csv(self.dataset_directory + "/traversal_costs_test.csv", index=False)
-        
+        dataframe_train.to_csv(self.dataset_directory +
+                               "/traversal_costs_train.csv",
+                               index=False)
+        dataframe_test.to_csv(self.dataset_directory +
+                              "/traversal_costs_test.csv",
+                              index=False)
+
 
 # Main program
 # The "__main__" flag acts as a shield to avoid these lines to be executed if
@@ -847,32 +784,13 @@ if __name__ == "__main__":
     
     dataset.write_images_and_compute_features(
         files=[
-            # "bagfiles/raw_bagfiles/tom_1.bag",
-            # "bagfiles/raw_bagfiles/tom_2.bag",
-            # "bagfiles/raw_bagfiles/tom_3.bag",
-            # "bagfiles/raw_bagfiles/tom_4.bag",
-            # "bagfiles/raw_bagfiles/tom_5.bag",
-            # "bagfiles/raw_bagfiles/tom_6.bag",
-            # "bagfiles/raw_bagfiles/tom_7.bag",
-            # "bagfiles/raw_bagfiles/tom_8.bag",
-            # "bagfiles/raw_bagfiles/tom_path_grass.bag",
-            # "bagfiles/raw_bagfiles/tom_grass_wood.bag",
-            # "bagfiles/raw_bagfiles/tom_road.bag",
-            # "bagfiles/raw_bagfiles/indoor.bag",
-            # "bagfiles/raw_bagfiles/indoor2.bag",
-            # "bagfiles/raw_bagfiles/simulation.bag"
-            # "bagfiles/raw_bagfiles/depth/antoine_2.bag",
-            "bagfiles/raw_bagfiles/depth/tom_missing.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full1.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full2.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full3.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full4.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full5.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full6.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full7.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full8.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full9.bag",
-            "bagfiles/raw_bagfiles/depth/tom_full10.bag",
+            # "bagfiles/raw_bagfiles/Terrains_Samples/road_easy.bag"
+            # "bagfiles/raw_bagfiles/Terrains_Samples/forest_dirt_medium.bag"
+            "bagfiles/raw_bagfiles/Terrains_Samples/sand_hard.bag"
+            # "bagfiles/raw_bagfiles/ENSTA_Campus/tom_2023-05-30-13-59-18_0.bag",
+            # "bagfiles/raw_bagfiles/ENSTA_Campus/",
+            # "bagfiles/raw_bagfiles/Palaiseau_Forest/",
+            # "bagfiles/raw_bagfiles/Troche/",
         ])
 
     dataset.write_traversal_costs()

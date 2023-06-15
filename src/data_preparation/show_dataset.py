@@ -28,15 +28,18 @@ except OSError:
     exit()
 
 # Create a collage of images
-collage = Image.new("RGB", (1700,960))
+collage = Image.new("RGB", (1700, 1100))
 draw = ImageDraw.Draw(collage)
-fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 40)
+fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 30)
+title_fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 40)
 
 # Create a progress bar (total of 20 images)
 pbar = tqdm(total=20)
 
-# Display the 10 images with the lowest pitch velocity variances
-draw.text((680, 0), "Lowest values", font=fnt, fill=(255, 255, 255, 255))
+# Display the 10 images with the lowest traversal costs
+draw.text((680, 0), "Lowest values",
+          font=title_fnt,
+          fill=(255, 255, 255, 255))
 
 for line in range(2):
     for col in range(5):
@@ -47,15 +50,23 @@ for line in range(2):
                                 sorted_frame.iloc[line*5 + col, 0])
         image = Image.open(img_name + ".png")
         image = image.resize((320, 180))
-        collage.paste(image, (10 + 340*col, 40 + line*220))
+        collage.paste(image, (10 + 340*col, 40 + line*250))
         
-        # Add the associated pitch velocity variance measure
-        draw.text((100 + 340*col, 220 + line*220),
+        # Add the associated traversal cost
+        draw.text((100 + 340*col, 220 + line*250),
                   f"{sorted_frame.iloc[line*5 + col, 1]:.5f}",
                   font=fnt, fill=(255, 255, 255, 255))
+        
+        draw.text((100 + 340*col, 250 + line*250),
+                  f"{sorted_frame.iloc[line*5 + col, 3]:.3f} m/s",
+                  font=fnt, fill=(255, 255, 255, 255))
+        
 
-# Display the 10 images with the highest pitch velocity variances
-draw.text((680,480), "Highest values", font=fnt, fill=(255, 255, 255, 255))
+# Display the 10 images with the highest traversal costs
+draw.text((680, 540),
+          "Highest values",
+          font=title_fnt,
+          fill=(255, 255, 255, 255))
 
 # Get the total number of observations
 nb_observations = len(dataframe)
@@ -69,11 +80,15 @@ for line in range(2):
                                 sorted_frame.iloc[nb_observations - 10 + line*5 + col, 0])
         image = Image.open(img_name + ".png")
         image = image.resize((320, 180))
-        collage.paste(image, (10 + 340*col, 520 + line*220))
+        collage.paste(image, (10 + 340*col, 580 + line*250))
         
-        # Add the associated pitch velocity variance measure
-        draw.text((100 + 340*col, 440 + 260 + line*220),
+        # Add the associated traversal cost
+        draw.text((100 + 340*col, 760 + line*250),
                   f"{sorted_frame.iloc[nb_observations - 10 + line*5 + col, 1]:.5f}",
+                  font=fnt, fill=(255, 255, 255, 255))
+        
+        draw.text((100 + 340*col, 790 + line*250),
+                  f"{sorted_frame.iloc[nb_observations - 10 + line*5 + col, 3]:.3f} m/s",
                   font=fnt, fill=(255, 255, 255, 255))
 
 

@@ -39,16 +39,33 @@ IMU_TOPIC = "/imu/data"
 ## Sensors characteristics ##
 #############################
 
+image_resolution = "1080p"
+calibration = "custom"  # "default" or "custom"
+# "custom" is the re-calibrated matrix
+
+# Dictionary of the internal calibration matrices for the ZED camera
+# depending on the image resolution and the calibration process
+K_dict = {"1080p": {"default": np.array([[1056, 0, 955],
+                                         [0, 1056, 546],
+                                         [0, 0, 1]]),
+                    "custom": np.array([[1067, 0, 943],
+                                        [0, 1067, 521],
+                                        [0, 0, 1]])},
+          "720p": {"default": np.array([[528, 0, 636],
+                                        [0, 528, 361],
+                                        [0, 0, 1]]),
+                   "custom": np.array([[534, 0, 634],
+                                       [0, 534, 363],
+                                       [0, 0, 1]])}}
+
 # (Constant) Internal calibration matrix (approx focal length)
-K = np.array([[534, 0, 634],
-              [0, 534, 363],
-              [0, 0, 1]])
+K = K_dict[image_resolution][calibration]
 
 # Odometry measurements frequency
 ODOM_SAMPLE_RATE = 50  # Hz
 
 # IMU measurements frequency
-IMU_SAMPLE_RATE = 100  # Hz
+IMU_SAMPLE_RATE = 200  # Hz
 
 # Image frequency
 CAMERA_SAMPLE_RATE = 3  # Hz

@@ -121,6 +121,8 @@ def compute_traversal_costs(dataset,
         dataset (string): Path to the dataset
         cost_function (function): Function used to compute the cost of a
         sample
+        to_tensor (bool, optional): If True, convert the cost to a tensor.
+        Defaults to False.
 
     Returns:
         dataframe: A dataframe containing the terrain classes, the linear
@@ -190,22 +192,22 @@ def display_traversal_costs(costs_df: pd.DataFrame) -> Image:
         if params.traversal_cost.colors.get(label):
             plt.scatter(df["linear_velocity"],
                         df["cost"],
-                        label=label,
+                        label=label.replace("_", "\_"),
                         color=params.traversal_cost.colors[label])
         # Otherwise, use the default color
         else:
             plt.scatter(df["linear_velocity"],
                         df["cost"],
-                        label=label)
+                        label=label.replace("_", "\_"))
 
-    plt.legend()
+    plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
 
     plt.xlabel("Velocity [m/s]")
     plt.ylabel("Traversal cost")
     
     # Converts the figure to an image
     image = io.BytesIO()
-    figure.savefig(image, format="png")
+    figure.savefig(image, format="png", bbox_inches="tight")
     image.seek(0)
     
     # Create a PIL image from the image stream
@@ -253,7 +255,7 @@ def display_traversal_costs_whiskers(costs_df: pd.DataFrame) -> Image:
         
         # Add a handle for the current terrain class
         handles.append(mpatches.Patch(color=params.traversal_cost.colors[label],
-                                      label=label))
+                                      label=label.replace("_", "\_")))
         
         # Go through the linear velocities
         for velocity in velocities_unique:
@@ -297,7 +299,9 @@ def display_traversal_costs_whiskers(costs_df: pd.DataFrame) -> Image:
     ax.set_xticklabels(velocities_unique)
     
     # Set the legend
-    ax.legend(handles=handles)
+    ax.legend(handles=handles,
+              bbox_to_anchor=(1, 1),
+              loc="upper left")
     
     # Set the labels of the axes
     ax.set_xlabel("Velocity [m/s]")
@@ -305,7 +309,7 @@ def display_traversal_costs_whiskers(costs_df: pd.DataFrame) -> Image:
     
     # Converts the figure to an image
     image = io.BytesIO()
-    fig.savefig(image, format="png")
+    fig.savefig(image, format="png", bbox_inches="tight")
     image.seek(0)
     
     # Create a PIL image from the image stream

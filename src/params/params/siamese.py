@@ -10,7 +10,22 @@ import traversalcost.features
 #########################################################
 
 # Terrain classes ordered from the most to the least traversable
-ORDERED_TERRAIN_CLASSES = ["road", "sand", "grass"]
+ORDERED_TERRAIN_CLASSES =[
+    "road_easy",
+    "road_medium",
+    "forest_dirt_easy",
+    "dust",
+    "forest_leaves",
+    "forest_dirt_medium",
+    "gravel_easy",
+    "grass_easy",
+    "grass_medium",
+    "gravel_medium",
+    "forest_leaves_branches",
+    "forest_dirt_stones_branches",
+    # "sand_hard",
+    # "sand_medium",
+    ]
 
 # List of linear velocities sent to the robot when recording IMU signals to
 # design a traversal cost
@@ -21,7 +36,7 @@ LINEAR_VELOCITIES = [0.2, 0.4, 0.6, 0.8, 1.0]
 # specifying them in dictionaries)
 # (the output of the function must be a numpy array of shape (n,) or a list
 # of length n, n being the number of features)
-params = {"sample_rate": 40}
+params = {}
 FEATURES = {"function": traversalcost.features.wrapped_signal_fft,
             "params_roll_rate": params,
             "params_pitch_rate": params,
@@ -33,15 +48,15 @@ FEATURES = {"function": traversalcost.features.wrapped_signal_fft,
 #############################################
 
 # Path to the dataset to be used (relative to the notebook path)
-DATASET = "../datasets/dataset_40Hz_wrap_fft_hard/"
+DATASET = "../datasets/dataset_200Hz_wrap_fft_without_road_easy/"
 
 # Define splits size
 TRAIN_SIZE = 0.7
 VAL_SIZE = 0.15
 TEST_SIZE = 0.15
 
-LEARNING = {"batch_size": 8,
-            "nb_epochs": 50,
+LEARNING = {"batch_size": 64,
+            "nb_epochs": 100,
             "margin": 0.15,
             "learning_rate": 0.005,
             "weight_decay": 0.0001,

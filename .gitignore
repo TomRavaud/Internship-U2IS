@@ -31,3 +31,7 @@ Notes.md
 logs_optuna*/
 
 _*
+
+.ipynb_checkpoints/
+
+*.egg-info/

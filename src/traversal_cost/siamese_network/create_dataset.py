@@ -51,15 +51,15 @@ import traversalcost.utils
 
 
 def print_message():
-    """
-    Print a message to explain how to label the data
-    """
-    print("1. Click and drag to select a region of the plot")
-    print("2. Enter the terrain class")
-    print("3. Enter the linear velocity of the robot")
-    print("4. Enter the number of sub-regions to divide the selected region into\n")
-    print("Close the plot window to go to the next bag file, or to exit\n")
-    
+        """
+        Print a message to explain how to label the data
+        """
+        print("1. Click and drag to select a region of the plot")
+        print("2. Enter the terrain class")
+        print("3. Enter the linear velocity of the robot")
+        print("4. Enter the number of sub-regions to divide the selected region into\n")
+        print("Close the plot window to go to the next bag file, or to exit\n")
+
 
 class SiameseDatasetBuilder():
     """
@@ -132,8 +132,23 @@ class SiameseDatasetBuilder():
                    "end_index"]
         file_labels_writer.writerow(headers)
         
-        # Go through the bagfiles
+        # Create a list to store bag files paths
+        bag_files = []
+        
+        # Go through the list of files
         for file in files:
+            
+            # Check if the file is a bag file
+            if os.path.isfile(file) and file.endswith(".bag"):
+                bag_files.append(file)
+            
+            # If the path links to a directory, go through the files inside it
+            elif os.path.isdir(file):
+                bag_files.extend(
+                    [file + f for f in os.listdir(file) if f.endswith(".bag")])
+        
+        # Go through the bagfiles
+        for file in bag_files:
             
             print("Reading file: " + file + "\n")
             
@@ -149,14 +164,15 @@ class SiameseDatasetBuilder():
             for _, msg, t in bag.read_messages(topics=[params.robot.IMU_TOPIC]):
                 roll_velocity_values.append(msg.angular_velocity.x)
                 pitch_velocity_values.append(msg.angular_velocity.y)
-                vertical_acceleration_values.append(msg.linear_acceleration.z - 9.81)
+                vertical_acceleration_values.append(
+                    msg.linear_acceleration.z - 9.81)
 
             # Open a figure and plot the roll velocity signal
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.plot(roll_velocity_values, "b")
             
-            ax.set_title(f"Roll velocity signal\n({file.split('/')[-1]})")
+            ax.set_title(f"Roll velocity signal\n({(file.split('/')[-1]).replace('_', '-')})")
             ax.set_xlabel("Measurement index")
             ax.set_ylabel("Roll velocity [rad/s]")
 
@@ -172,8 +188,8 @@ class SiameseDatasetBuilder():
                 # outside of the function
                 # global example_index
 
-                # Ask the user to enter the terrain class and the linear velocity of
-                # the robot
+                # Ask the user to enter the terrain class and the linear
+                # velocity of the robot
                 terrain_class = input(
                     f"Enter the terrain class {params.siamese.ORDERED_TERRAIN_CLASSES}: "
                 )
@@ -189,7 +205,9 @@ class SiameseDatasetBuilder():
                 x = np.linspace(xmin, xmax, nb_subregions + 1)
 
                 for i in range(nb_subregions):
-
+                    
+                    print(len(roll_velocity_values[int(x[i]):int(x[i+1])]))
+                    
                     # Extract features from the signals
                     features = traversalcost.utils.get_features(
                         roll_velocity_values[int(x[i]):int(x[i+1])],
@@ -201,11 +219,13 @@ class SiameseDatasetBuilder():
                     example_name = f"{self.example_index:03d}"
 
                     # Save the features in a numpy file
-                    np.save(self.dataset_directory + "/features/" + example_name + ".npy",
+                    np.save(self.dataset_directory +
+                            "/features/" +
+                            example_name + ".npy",
                             features)
 
-                    # Write the terrain class and the linear velocity of the robot in the
-                    # csv file
+                    # Write the terrain class and the linear velocity of the
+                    # robot in the csv file
                     file_labels_writer.writerow([example_name,
                                                  terrain_class,
                                                  linear_velocity,
@@ -223,12 +243,11 @@ class SiameseDatasetBuilder():
                 # Print a message to the user
                 print_message()
 
-
             # Print a message to the user
             print_message()
 
-            # Create a span selector object that gets a selected region from a plot and
-            # runs a callback function
+            # Create a span selector object that gets a selected region from
+            # a plot and runs a callback function
             span = SpanSelector(ax,
                                 onselect,
                                 direction="horizontal",
@@ -252,8 +271,23 @@ class SiameseDatasetBuilder():
         file_labels = pd.read_csv(csv_labels,
                                   converters={"id": str})
         
-        # Go through the bagfiles
+        # Create a list to store bag files paths
+        bag_files = []
+        
+        # Go through the list of files
         for file in files:
+            
+            # Check if the file is a bag file
+            if os.path.isfile(file) and file.endswith(".bag"):
+                bag_files.append(file)
+            
+            # If the path links to a directory, go through the files inside it
+            elif os.path.isdir(file):
+                bag_files.extend(
+                    [file + f for f in os.listdir(file) if f.endswith(".bag")])
+        
+        # Go through the bagfiles
+        for file in bag_files:
             
             print("Reading file: " + file + "\n")
             
@@ -293,8 +327,8 @@ class SiameseDatasetBuilder():
                         id + ".npy",
                         features)
 
-                # Copy the csv file in the dataset directory
-                shutil.copy(csv_labels, self.dataset_directory + "/labels.csv")
+        # Copy the csv file in the dataset directory
+        shutil.copy(csv_labels, self.dataset_directory + "/labels.csv")
 
 
     def find_and_write_pairs(self):
@@ -333,6 +367,8 @@ class SiameseDatasetBuilder():
                 labels.loc[int(index2), "terrain_class"] and\
                 np.abs(labels.loc[int(index1), "linear_velocity"] -\
                 labels.loc[int(index2), "linear_velocity"]) > 0.2 + 1e-4):
+                # labels.loc[int(index1), "terrain_class"] == "road_easy" or\
+                # labels.loc[int(index2), "terrain_class"] == "road_easy":
 
                 pairs_to_remove.append(i)
 
@@ -375,8 +411,10 @@ class SiameseDatasetBuilder():
                                         params.siamese.VAL_SIZE)
 
         # Store the train and test splits in csv files
-        dataframe_train.to_csv(self.dataset_directory + "/pairs_train.csv", index=False)
-        dataframe_test.to_csv(self.dataset_directory + "/pairs_test.csv", index=False)
+        dataframe_train.to_csv(self.dataset_directory + "/pairs_train.csv",
+                               index=False)
+        dataframe_test.to_csv(self.dataset_directory + "/pairs_test.csv",
+                              index=False)
     
     
     def generate_features_description(self):
@@ -398,19 +436,21 @@ class SiameseDatasetBuilder():
         # Close the text file
         description_file.close()
 
-
+ 
 # Main program
 # The "__main__" flag acts as a shield to avoid these lines to be executed if
 # this file is imported in another one
 if __name__ == "__main__":
     
-    dataset = SiameseDatasetBuilder(name="40Hz_wrap_fft_hard")
+    dataset = SiameseDatasetBuilder(name="to_delete")
     
     # List of the bag files to be processed
     files=[
-        "bagfiles/raw_bagfiles/speed_dependency/grass.bag",
-        "bagfiles/raw_bagfiles/speed_dependency/road.bag",
-        "bagfiles/raw_bagfiles/speed_dependency/sand.bag",
+        # "bagfiles/raw_bagfiles/speed_dependency/grass.bag",
+        # "bagfiles/raw_bagfiles/speed_dependency/road.bag",
+        # "bagfiles/raw_bagfiles/speed_dependency/sand.bag",
+        # "bagfiles/raw_bagfiles/Terrains_Samples/"
+        "bagfiles/raw_bagfiles/Terrains_Samples/forest_leaves_branches.bag"
     ]
     
     # Choose between manual labeling or labeling from a csv file
@@ -420,7 +460,7 @@ if __name__ == "__main__":
     # file which contains the labels. It allows us to extract new features
     # from already labeled signals
     dataset.labeling_from_file(
-        csv_labels="src/traversal_cost/datasets/dataset_40Hz_variance/labels.csv",
+        csv_labels="src/traversal_cost/datasets/dataset_200Hz_variance/labels.csv",
         files=files)
     
     dataset.generate_features_description()

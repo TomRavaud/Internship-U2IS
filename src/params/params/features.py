@@ -60,17 +60,3 @@ WINDOW_SIZE = 5
 
 # Length of the blocks the original signal is split into, then to be wrapped
 N = 50
-
-
-# NOTE: To be modified
-# Number of signals to characterize a patch
-NB_SIGNALS = 3
-
-# Number of features to extract from a signal
-NB_FEATURES = (NB_LEVELS + 1)*NB_SIGNALS
-
-# Number of bins to digitized the traversal cost
-NB_BINS = 10
-
-# Set the binning strategy
-BINNING_STRATEGY = "kmeans"

@@ -13,13 +13,12 @@ plt.rcParams.update({
 })
 
 # Import custom packages and modules
-import params.siamese
-import traversalcost.utils
+import params.learning
 
 
 def parameters_table(dataset: str,
                      learning_params: dict) -> List[List[Any]]:
-    """Generate a table containing the parameters used to train the Siamese
+    """Generate a table containing the parameters used to train the network
     network
     
     Args:
@@ -45,9 +44,9 @@ def parameters_table(dataset: str,
         ],
         [
             dataset.split("/")[-2],
-            params.siamese.TRAIN_SIZE,
-            params.siamese.VAL_SIZE,
-            params.siamese.TEST_SIZE,
+            params.learning.TRAIN_SIZE,
+            params.learning.VAL_SIZE,
+            params.learning.TEST_SIZE,
             learning_params["batch_size"],
             learning_params["nb_epochs"],
             learning_params["margin"],
@@ -68,12 +67,12 @@ def parameters_table(dataset: str,
 
 def generate_log(dataset_directory: str,
                  results_directory: str,
-                 test_loss: float,
+                 test_regression_loss: float,
                  test_accuracy: float,
                  parameters_table: List[List[Any]],
                  model: torch.nn.Module,
-                 loss_values: torch.Tensor,
-                 accuracy_values: torch.Tensor) -> None:
+                 regression_loss_values: torch.Tensor,
+                 accuracy_values: torch.Tensor):
     """Create a directory to store the results of the training and save the
     results in it
 
@@ -81,11 +80,11 @@ def generate_log(dataset_directory: str,
         dataset_directory (str): Path to the dataset
         results_directory (str): Path to the directory where the results will
         be stored
-        test_loss (float): Test loss
+        test_regression_loss (float): Test loss
         test_accuracy (float): Test accuracy
         parameters_table (table): Table of parameters
-        model (nn.Module): Siamese network
-        loss_values (Tensor): Loss values
+        model (nn.Module): The network
+        regression_loss_values (Tensor): Regression loss values
         accuracy_values (Tensor): Accuracy values
     """    
     # Create the directory
@@ -94,7 +93,7 @@ def generate_log(dataset_directory: str,
     # Open a text file
     test_loss_file = open(results_directory + "/test_results.txt", "w")
     # Write the test loss in it
-    test_loss_file.write(f"Test loss: {test_loss}\n")
+    test_loss_file.write(f"Test regression loss: {test_regression_loss}\n")
     # Write the test accuracy in it
     test_loss_file.write(f"Test accuracy: {test_accuracy}")
     # Close the file
@@ -115,8 +114,8 @@ def generate_log(dataset_directory: str,
     network_file.close()
     
     # Create and save the learning curve
-    train_losses = loss_values[0]
-    val_losses = loss_values[1]
+    train_losses = regression_loss_values[0]
+    val_losses = regression_loss_values[1]
 
     plt.figure()
 
@@ -142,27 +141,10 @@ def generate_log(dataset_directory: str,
     
     plt.savefig(results_directory + "/accuracy_curve.png")
     
-    # Compute the traversal costs from the features of the dataset
-    costs_df = traversalcost.utils.compute_traversal_costs(
-        dataset=dataset_directory,
-        cost_function=model.to(device="cpu"),
-        to_tensor=True)
-    
-    # Display the traversal costs
-    cost_graph = traversalcost.utils.display_traversal_costs(costs_df)
-    
-    # Save the traversal cost graph
-    cost_graph.save(results_directory + "/traversal_cost_graph.png", "PNG")
-    
-    # Display the whiskers
-    cost_whiskers = traversalcost.utils.display_traversal_costs_whiskers(costs_df)
-    
-    # Save the whiskers
-    cost_whiskers.save(results_directory + "/traversal_cost_whiskers.png", "PNG")
     
     # Save the model parameters
     torch.save(model.state_dict(),
-               results_directory + "/" + params.siamese.PARAMS_FILE)
+               results_directory + "/" + params.learning.PARAMS_FILE)
 
 
 # Main program
