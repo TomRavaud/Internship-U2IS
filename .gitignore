@@ -30,8 +30,14 @@ Notes.md
 
 logs_optuna*/
 
+data_Arnaud/
+
 _*
+
+pack
 
 .ipynb_checkpoints/
 
 *.egg-info/
+
+build/

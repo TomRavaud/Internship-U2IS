@@ -181,7 +181,8 @@ def display_traversal_costs(costs_df: pd.DataFrame) -> Image:
     
     # Open a figure
     figure = plt.figure()
-    
+    plt.figure(figsize=(20,20)) #ICI
+
     # Go through the labels
     for label in labels_unique:
         

@@ -10,3 +10,4 @@ It contains the following files:
 * **robot.py**: parameters related to the robot platform (robot and sensors characteristics, ROS topics, etc.)
 * **siamese.py**: parameters used to work with a Siamese network for traversal cost design (dataset creation, learning)
 * **traversal_cost.py**: parameters for traversal cost computation and visualization
+* **supervised_learning.py** : parameters used for supervised network
