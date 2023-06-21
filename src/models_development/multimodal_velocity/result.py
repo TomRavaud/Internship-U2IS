@@ -19,7 +19,6 @@ import params.learning
 def parameters_table(dataset: str,
                      learning_params: dict) -> List[List[Any]]:
     """Generate a table containing the parameters used to train the network
-    network
     
     Args:
         dataset (str): The path to the dataset
@@ -37,7 +36,6 @@ def parameters_table(dataset: str,
             "Test size",
             "Batch size",
             "Nb epochs",
-            "Margin",
             "Learning rate",
             "Weight decay",
             "Momentum",
@@ -49,7 +47,6 @@ def parameters_table(dataset: str,
             params.learning.TEST_SIZE,
             learning_params["batch_size"],
             learning_params["nb_epochs"],
-            learning_params["margin"],
             learning_params["learning_rate"],
             learning_params["weight_decay"],
             learning_params["momentum"],
@@ -65,19 +62,20 @@ def parameters_table(dataset: str,
     
     return table
 
-def generate_log(dataset_directory: str,
-                 results_directory: str,
+
+def generate_log(results_directory: str,
                  test_regression_loss: float,
                  test_accuracy: float,
                  parameters_table: List[List[Any]],
                  model: torch.nn.Module,
                  regression_loss_values: torch.Tensor,
-                 accuracy_values: torch.Tensor):
+                 accuracy_values: torch.Tensor,
+                 test_losses_loss: list,
+                 test_losses_uncertainty: list) -> None:
     """Create a directory to store the results of the training and save the
     results in it
 
     Args:
-        dataset_directory (str): Path to the dataset
         results_directory (str): Path to the directory where the results will
         be stored
         test_regression_loss (float): Test loss
@@ -86,6 +84,10 @@ def generate_log(dataset_directory: str,
         model (nn.Module): The network
         regression_loss_values (Tensor): Regression loss values
         accuracy_values (Tensor): Accuracy values
+        test_losses_loss (list): Test loss values when removing samples with
+        the highest regression loss
+        test_losses_uncertainty (list): Test loss values when removing samples
+        with the highest uncertainty
     """    
     # Create the directory
     os.mkdir(results_directory)
@@ -141,6 +143,24 @@ def generate_log(dataset_directory: str,
     
     plt.savefig(results_directory + "/accuracy_curve.png")
     
+    plt.figure()
+    
+    plt.plot(range(0, 100, 10),
+             test_losses_loss,
+             "bo--",
+             label="removing samples with highest regression loss",
+             markersize=4)
+    plt.plot(range(0, 100, 10),
+             test_losses_uncertainty,
+             "ro--",
+             label="removing samples with highest uncertainty",
+             markersize=4)
+
+    plt.legend(loc="upper right")
+    plt.xlabel("Percentage of samples removed")
+    plt.ylabel("Regression error (MSE)")
+    
+    plt.savefig(results_directory + "/uncertainty_relevance.png")
     
     # Save the model parameters
     torch.save(model.state_dict(),

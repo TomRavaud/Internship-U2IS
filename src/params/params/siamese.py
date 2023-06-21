@@ -48,7 +48,7 @@ FEATURES = {"function": traversalcost.features.wrapped_signal_fft,
 #############################################
 
 # Path to the dataset to be used (relative to the notebook path)
-DATASET = "../datasets/dataset_200Hz_wrap_fft_without_road_easy/"
+DATASET = "../datasets/dataset_200Hz_wrap_fft/"
 
 # Define splits size
 TRAIN_SIZE = 0.7

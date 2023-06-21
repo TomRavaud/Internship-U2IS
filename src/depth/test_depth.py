@@ -21,7 +21,7 @@ depth_image_path = directory + "/src/depth/depth_image.tiff"
 depth_image = cv2.imread(depth_image_path, cv2.IMREAD_ANYDEPTH)
 
 # Create a Depth object from a depth image
-depth = Depth(depth_image)
+depth = Depth(depth_image, depth_range=(0.7, 7))
 
 # Display the depth image
 depth.display_depth()
@@ -35,6 +35,8 @@ bilateral_filter = {"d": 5,
 depth.compute_normal(K=params.robot.K,
                      bilateral_filter=bilateral_filter,
                      gradient_threshold=10)
+
+# print(depth.get_normal())
 
 # Display the normal image
 depth.display_normal()

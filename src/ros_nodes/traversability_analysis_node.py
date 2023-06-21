@@ -20,8 +20,8 @@ import PIL
 import time
 
 # Custom modules
-import frames
-import drawing as dw
+import utils.frames as frames
+import utils.drawing as dw
 
 
 class TraversabilityAnalysis:

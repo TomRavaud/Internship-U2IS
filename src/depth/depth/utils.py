@@ -8,7 +8,9 @@ class Depth():
     normals from a depth image, and to display the depth and normal images.
     """
     
-    def __init__(self, depth: np.ndarray=None) -> None:
+    def __init__(self,
+                 depth: np.ndarray=None,
+                 depth_range: tuple=None) -> None:
         """Constructor of the Depth class.
 
         Args:
@@ -27,7 +29,9 @@ class Depth():
         # Set a lambda function to convert the range of the depth values
         # to [0, 255] (the minimum depth value is supposed to be 0)
         self.convert_range_depth =\
-            lambda depth: np.uint8((255/np.max(depth))*depth)
+            lambda depth: np.uint8((255/np.max(depth))*depth)\
+            if depth_range is None\
+            else np.uint8(255/(depth_range[1]-depth_range[0])*(depth-depth_range[0]))
         
         # Set a lambda function to convert the range of the normal components
         # to [0, 255] (each component is supposed to be in [-1, 1])
@@ -88,7 +92,7 @@ class Depth():
         # Apply the chain rule for the partial derivatives
         dz_dx = dz_du * du_dx
         dz_dy = dz_dv * dv_dy 
-
+        
         # Compute the surface normals from the gradients with a cross-product
         # (1, 0, dz_dx) X (0, 1, dz_dy) = (-dz_dx, -dz_dy, 1)
         normal = np.dstack((-dz_dx, -dz_dy, np.ones_like(depth)))
@@ -135,7 +139,7 @@ class Depth():
         # and converting the range of the values
         cv2.imshow(name,
                    self.convert_range_depth(
-                       self.fill_missing_depth(self.depth_, -1)))
+                       self.fill_missing_depth(self.depth_, 0.7)))
         
     
     def display_normal(self, name: str="Surface normals") -> None:
@@ -162,7 +166,8 @@ class Depth():
     
     def get_depth(self,
                   fill: bool=True,
-                  default_depth: float=-1) -> np.ndarray:
+                  default_depth: float=0.7,
+                  convert_range: bool=True) -> np.ndarray:
         """Getter of the depth image attribute.
         
         Args:
@@ -170,13 +175,23 @@ class Depth():
             Defaults to True.
             default_depth (float, optional): The value to use to fill the
             missing values. Defaults to -1.
+            convert_range (bool, optional): Whether to convert the range of
+            the values. Defaults to True.
 
         Returns:
             np.ndarray: The depth image.
         """
-        return self.fill_missing_depth(
-            self.depth_,
-            default_value=default_depth) if fill else self.depth_
+        depth = self.depth_
+        
+        # Fill the missing values if required
+        if fill:
+            depth = self.fill_missing_depth(depth, default_depth)
+        
+        # Convert the range of the values if required
+        if convert_range:
+            depth = self.convert_range_depth(depth)
+            
+        return depth
 
     
     def set_depth(self, depth: np.ndarray) -> None:
@@ -190,7 +205,8 @@ class Depth():
 
     def get_normal(self,
                    fill: bool=True,
-                   default_normal: list=[0, 0, 1]) -> np.ndarray:
+                   default_normal: list=[0, 0, 1],
+                   convert_range: bool=True) -> np.ndarray:
         """Getter of the normal image attribute.
         
         Args:
@@ -198,13 +214,23 @@ class Depth():
             Defaults to True.
             default_normal (list, optional): The value to use to fill the
             missing values. Defaults to [0, 0, 1].
+            convert_range (bool, optional): Whether to convert the range of
+            the values. Defaults to True.
 
         Returns:
             np.ndarray: The normal image.
-        """        
-        return self.fill_missing_normal(
-            self.normal_,
-            default_normal=default_normal) if fill else self.normal_
+        """
+        normal = self.normal_
+        
+        # Fill the missing values if required
+        if fill:
+            normal = self.fill_missing_normal(normal, default_normal)
+        
+        # Convert the range of the values if required
+        if convert_range:
+            normal = self.convert_range_normal(normal)
+
+        return normal
 
 
     def set_normal(self, normal: np.ndarray) -> None:
@@ -214,4 +240,3 @@ class Depth():
             normal (np.ndarray): The normal image.
         """        
         self.normal_ = normal
-    

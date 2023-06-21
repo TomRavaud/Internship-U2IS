@@ -83,25 +83,29 @@ class TraversabilityDataset(Dataset):
             image = self.transform_image(image)
             
         # Read the depth image
-        depth_image = tifffile.imread(image_name + "d.tiff")
+        # depth_image = tifffile.imread(image_name + "d.tiff")
+        depth_image = Image.open(image_name + "d.png")
         
         # Eventually apply transforms to the depth image
         if self.transform_depth:
             depth_image = self.transform_depth(depth_image)
             
         # Read the normal map
-        normal_map = tifffile.imread(image_name + "n.tiff")
+        # normal_map = tifffile.imread(image_name + "n.tiff")
+        normal_map = Image.open(image_name + "n.png")
         
         # Eventually apply transforms to the normal map
         if self.transform_normal:
             normal_map = self.transform_normal(normal_map)
         
         # Concatenate the rgb, depth and normal images
+        # multimodal_image = torch.cat((image, depth_image)).float()
         multimodal_image = torch.cat((image, depth_image, normal_map)).float()
         
         # Get the corresponding traversal cost
-        traversal_cost = self.traversal_costs_frame.loc[idx,
-                                                        "traversal_cost"].astype(np.float32)
+        traversal_cost =\
+            self.traversal_costs_frame.loc[idx,
+                                           "traversal_cost"].astype(np.float32)
         
         # Get the corresponding traversability label
         traversability_label =\
@@ -111,7 +115,7 @@ class TraversabilityDataset(Dataset):
         linear_velocity = self.traversal_costs_frame.loc[idx,
                                                          "linear_velocity"]
 
-        return image,\
+        return multimodal_image,\
                traversal_cost,\
                traversability_label,\
                linear_velocity

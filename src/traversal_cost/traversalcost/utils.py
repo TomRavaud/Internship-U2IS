@@ -181,7 +181,6 @@ def display_traversal_costs(costs_df: pd.DataFrame) -> Image:
     
     # Open a figure
     figure = plt.figure()
-    plt.figure(figsize=(20,20)) #ICI
 
     # Go through the labels
     for label in labels_unique:
@@ -319,6 +318,97 @@ def display_traversal_costs_whiskers(costs_df: pd.DataFrame) -> Image:
     return image
 
 
+def display_confidence_intervals(costs_df: pd.DataFrame) -> Image:
+    """Display the traversal costs of samples and the confidence interval.
+    Each terrain class is represented by a different color.
+    The linear velocity is represented on the x-axis and the traversal cost
+    on the y-axis.
+
+    Args:
+        costs_df (pd.Dataframe): A dataframe containing the terrain classes, the
+        linear velocities of the robot and the traversal costs
+        (headers: "terrain_class", "linear_velocity", "cost")
+    
+    Returns:
+        Image: An image of the figure
+    """
+    # Get the list of the terrain classes
+    labels_unique = list(set(costs_df["terrain_class"]))
+    
+    # Get the list of the linear velocities
+    velocities_unique = list(set(costs_df["linear_velocity"]))
+    
+    # Open a figure
+    figure = plt.figure()
+    
+    # Set some parameters for the plot
+    MARKER_SIZE = 8
+    OPACITY = 0.2
+    MARKER = "--."
+
+    # Go through the labels
+    for label in labels_unique:
+        
+        # Get the samples of the current terrain class
+        df = costs_df[costs_df["terrain_class"] == label]
+        
+        # Create arrays to store the mean costs and the confidence intervals
+        mean_costs = np.zeros(len(velocities_unique))
+        confidence = np.zeros(len(velocities_unique))
+        
+        for i, velocity in enumerate(velocities_unique):
+            
+            df_velocity = df[df["linear_velocity"] == velocity]
+            
+            # Compute the mean cost
+            mean_costs[i] = np.mean(df_velocity["cost"])
+            
+            # Compute the 99.7% confidence interval
+            confidence[i] = 3*np.std(df_velocity["cost"])\
+                            /np.sqrt(len(df_velocity["cost"]))
+        
+        # If a color is specified for the current terrain class, use it
+        if params.traversal_cost.colors.get(label):
+            plt.plot(velocities_unique,
+                     mean_costs,
+                     MARKER,
+                     markersize=MARKER_SIZE,
+                     label=label.replace("_", "\_"),
+                     color=params.traversal_cost.colors[label])
+            plt.fill_between(velocities_unique,
+                             mean_costs - confidence,
+                             mean_costs + confidence,
+                             color=params.traversal_cost.colors[label],
+                             alpha=OPACITY)
+            
+        # Otherwise, use the default color
+        else:
+            plt.plot(velocities_unique,
+                     mean_costs,
+                     MARKER,
+                     markersize=MARKER_SIZE,
+                     label=label.replace("_", "\_"))
+            plt.fill_between(velocities_unique,
+                             mean_costs - confidence,
+                             mean_costs + confidence,
+                             alpha=OPACITY)
+
+    plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
+
+    plt.xlabel("Velocity [m/s]")
+    plt.ylabel("Traversal cost")
+    
+    # Converts the figure to an image
+    image = io.BytesIO()
+    figure.savefig(image, format="png", bbox_inches="tight")
+    image.seek(0)
+    
+    # Create a PIL image from the image stream
+    image = Image.open(image)
+    
+    return image
+
+
 def modulo_wrap(signal: list, N: int) -> list:
     """Wrap a signal by splitting it into blocks of given length and
     summing the blocks. If the length of the signal is not a multiple of
@@ -382,10 +472,14 @@ if __name__ == "__main__":
         )
     
     # costs = display_traversal_costs(costs_df)
-    whiskers = display_traversal_costs_whiskers(costs_df)
+    
+    # whiskers = display_traversal_costs_whiskers(costs_df)
     # Convert the image to grayscale
     # image_pgm = image.convert("L")
     # image_pgm.save("traversal_cost_whiskers.pgm")
+    
+    display_confidence_intervals(costs_df)
+    
 
     # Save the image
     # image.save("plot.png", "PNG")

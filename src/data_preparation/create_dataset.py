@@ -164,8 +164,7 @@ class DatasetBuilder():
         except OSError:  # Display a message if it already exists and quit
             print("Existing directory " + self.dataset_directory)
             print("Aborting to avoid overwriting data\n")
-            # sys.exit(1)  # Stop the execution of the script
-            pass
+            sys.exit(1)  # Stop the execution of the script
         
         # Create a sub-directory to store images
         self.images_directory = self.dataset_directory + "/images"
@@ -495,8 +494,7 @@ class DatasetBuilder():
                         image_to_save = image[min_y_rectangle:max_y_rectangle,
                                               min_x_rectangle:max_x_rectangle]
                         
-                        # cv2.imshow('image', cv2.resize(image, (1280, 720)))
-                        # cv2.waitKey(2)
+                        # cv2.imshow("rgb", image_to_save)
                         
                         # Convert the image from BGR to RGB
                         image_to_save = cv2.cvtColor(image_to_save,
@@ -517,7 +515,8 @@ class DatasetBuilder():
                             min_x_rectangle:max_x_rectangle]
                         
                         # Create a Depth object
-                        depth = Depth(depth_image_crop.copy())
+                        depth = Depth(depth_image_crop.copy(),
+                                      params.dataset.DEPTH_RANGE)
                         
                         # Compute the surface normals
                         depth.compute_normal(
@@ -525,22 +524,50 @@ class DatasetBuilder():
                             bilateral_filter=params.dataset.BILATERAL_FILTER,
                             gradient_threshold=params.dataset.GRADIENT_THR)
                         
-                        depth.display_depth()
-                        depth.display_normal()
+                        # depth.display_depth()
+                        # depth.display_normal()
                         
                         # Give the depth image a name
-                        depth_image_name = f"{index_image:05d}d.tiff"
+                        # depth_image_name = f"{index_image:05d}d.tiff"
+                        depth_image_name = f"{index_image:05d}d.png"
                         # Save the depth image in the correct directory
-                        tifffile.imwrite(self.images_directory +
-                                         "/" + depth_image_name,
-                                         depth.get_depth())
+                        # tifffile.imwrite(self.images_directory +
+                        #                  "/" + depth_image_name,
+                        #                  depth.get_depth())
+                        depth_to_save = depth.get_depth(
+                            fill=True,
+                            default_depth=params.dataset.DEPTH_RANGE[0],
+                            convert_range=True)
+                         
+                        # Make a PIL image
+                        depth_to_save = Image.fromarray(depth_to_save)
+                        # Save the image in the correct directory
+                        depth_to_save.save(self.images_directory +
+                                           "/" + depth_image_name, "PNG")
                         
                         # Give the normal map a name
-                        normal_map_name = f"{index_image:05d}n.tiff"
+                        # normal_map_name = f"{index_image:05d}n.tiff"
+                        normal_map_name = f"{index_image:05d}n.png"
                         # Save the normal map in the correct directory
-                        tifffile.imwrite(self.images_directory +
-                                         "/" + normal_map_name,
-                                         depth.get_normal())
+                        # tifffile.imwrite(self.images_directory +
+                        #                  "/" + normal_map_name,
+                        #                  depth.get_normal())
+                        normal_to_save = depth.get_normal(
+                            fill=True,
+                            default_normal=params.dataset.DEFAULT_NORMAL,
+                            convert_range=True)
+                        
+                        # Convert the image from BGR to RGB
+                        normal_to_save = cv2.cvtColor(
+                            normal_to_save,
+                            cv2.COLOR_BGR2RGB)
+                        
+                        # Make a PIL image
+                        normal_to_save = Image.fromarray(normal_to_save)
+                        # Save the image in the correct directory
+                        normal_to_save.save(self.images_directory +
+                                            "/" + normal_map_name, "PNG")
+                        
 
                         # Increment the number of rectangular images extracted
                         # from the image
@@ -578,7 +605,8 @@ class DatasetBuilder():
                                 params.dataset.FEATURES)
 
                         # Compute the variance of the pitch rate signal
-                        self.pitch_rate_variance[index_image] = np.var(pitch_velocity_values)
+                        self.pitch_rate_variance[index_image] =\
+                            np.var(pitch_velocity_values)
 
                         # Compute the mean velocity on the current patch
                         self.velocities[index_image] = np.mean(x_velocity)
@@ -599,8 +627,8 @@ class DatasetBuilder():
                         t_odom_old = t_odom
 
                         # Display the image
-                        cv2.imshow("Image", cv2.resize(image, (1280, 720)))
-                        cv2.waitKey()
+                        # cv2.imshow("Image", cv2.resize(image, (1280, 720)))
+                        # cv2.waitKey()
                     
                     # Go to the next image if the maximum number of rectangular
                     # images extracted has been reached
@@ -671,8 +699,15 @@ class DatasetBuilder():
         file_costs_writer = csv.writer(file_costs, delimiter=",")
 
         # Write the first row (columns title)
-        headers = ["image_id", "traversal_cost", "traversability_label", "linear_velocity"]
-        # headers = ["image_id", "traversal_cost", "traversability_label", "trajectory_id", "image_timestamp"]  #TODO:
+        headers = ["image_id",
+                   "traversal_cost",
+                   "traversability_label",
+                   "linear_velocity"]
+        # headers = ["image_id",
+        #            "traversal_cost",
+        #            "traversability_label",
+        #            "trajectory_id",
+        #            "image_timestamp"]  #TODO:
         file_costs_writer.writerow(headers)
         
         costs, labels = self.compute_traversal_costs()
@@ -697,8 +732,15 @@ class DatasetBuilder():
             # image_timestamp = images_timestamps[i]
 
             # Add the image index and the associated score in the csv file
-            file_costs_writer.writerow([str(image_name), cost, label, linear_velocity])  #TODO:
-            # file_costs_writer.writerow([image_name, cost, label, trajectory_id, image_timestamp])
+            file_costs_writer.writerow([str(image_name),
+                                        cost,
+                                        label,
+                                        linear_velocity])  #TODO:
+            # file_costs_writer.writerow([image_name,
+            #                             cost,
+            #                             label,
+            #                             trajectory_id,
+            #                             image_timestamp])
 
         # Close the csv file
         file_costs.close()
@@ -724,11 +766,13 @@ class DatasetBuilder():
         
         # Split the dataset randomly into training and testing sets
         dataframe_train, dataframe_test =\
-            train_test_split(dataframe,
-                             train_size=params.learning.TRAIN_SIZE +
-                                        params.learning.VAL_SIZE,
-                            #  stratify=dataframe["traversability_label"]
-                             )
+            train_test_split(
+                dataframe,
+                train_size=params.learning.TRAIN_SIZE +
+                           params.learning.VAL_SIZE,
+                stratify=dataframe["traversability_label"]
+                if params.dataset.STRATIFY else None,
+                )
         
         # Count the number of samples per class
         train_distribution =\
@@ -755,16 +799,20 @@ class DatasetBuilder():
         for _, row in dataframe_train.iterrows():
             image_file = os.path.join(self.images_directory, row["image_id"])
             shutil.copy(image_file + ".png", train_directory)
-            shutil.copy(image_file + "d.tiff", train_directory)
-            shutil.copy(image_file + "n.tiff", train_directory)
+            shutil.copy(image_file + "d.png", train_directory)
+            shutil.copy(image_file + "n.png", train_directory)
+            # shutil.copy(image_file + "d.tiff", train_directory)
+            # shutil.copy(image_file + "n.tiff", train_directory)
 
         # Iterate over each row of the testing set and copy the images to the
         # testing directory
         for _, row in dataframe_test.iterrows():
             image_file = os.path.join(self.images_directory, row["image_id"])
             shutil.copy(image_file + ".png", test_directory)
-            shutil.copy(image_file + "d.tiff", test_directory)
-            shutil.copy(image_file + "n.tiff", test_directory)
+            shutil.copy(image_file + "d.png", test_directory)
+            shutil.copy(image_file + "n.png", test_directory)
+            # shutil.copy(image_file + "d.tiff", test_directory)
+            # shutil.copy(image_file + "n.tiff", test_directory)
         
         # Store the train and test splits in csv files
         dataframe_train.to_csv(self.dataset_directory +
@@ -780,16 +828,16 @@ class DatasetBuilder():
 # this file is imported in another one
 if __name__ == "__main__":
     
-    dataset = DatasetBuilder(name="to_delete")
+    dataset = DatasetBuilder(name="multimodal_siamese_png")
     
     dataset.write_images_and_compute_features(
         files=[
             # "bagfiles/raw_bagfiles/Terrains_Samples/road_easy.bag"
             # "bagfiles/raw_bagfiles/Terrains_Samples/forest_dirt_medium.bag"
-            "bagfiles/raw_bagfiles/Terrains_Samples/sand_hard.bag"
+            # "bagfiles/raw_bagfiles/Terrains_Samples/sand_hard.bag"
             # "bagfiles/raw_bagfiles/ENSTA_Campus/tom_2023-05-30-13-59-18_0.bag",
-            # "bagfiles/raw_bagfiles/ENSTA_Campus/",
-            # "bagfiles/raw_bagfiles/Palaiseau_Forest/",
+            "bagfiles/raw_bagfiles/ENSTA_Campus/",
+            "bagfiles/raw_bagfiles/Palaiseau_Forest/",
             # "bagfiles/raw_bagfiles/Troche/",
         ])
 

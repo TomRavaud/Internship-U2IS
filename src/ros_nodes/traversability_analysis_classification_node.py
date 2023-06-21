@@ -21,8 +21,8 @@ import time
 import matplotlib.pyplot as plt
 
 # Custom modules
-import frames
-import drawing as dw
+import utils.frames as frames
+import utils.drawing as dw
 
 
 class TraversabilityAnalysis:

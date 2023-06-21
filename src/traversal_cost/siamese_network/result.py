@@ -155,10 +155,21 @@ def generate_log(dataset_directory: str,
     cost_graph.save(results_directory + "/traversal_cost_graph.png", "PNG")
     
     # Display the whiskers
-    cost_whiskers = traversalcost.utils.display_traversal_costs_whiskers(costs_df)
+    cost_whiskers =\
+        traversalcost.utils.display_traversal_costs_whiskers(costs_df)
     
     # Save the whiskers
-    cost_whiskers.save(results_directory + "/traversal_cost_whiskers.png", "PNG")
+    cost_whiskers.save(results_directory + "/traversal_cost_whiskers.png",
+                       "PNG")
+    
+    # Display the confidence intervals
+    cost_confidence_intervals =\
+        traversalcost.utils.display_confidence_intervals(costs_df)
+    
+    # Save the confidence intervals
+    cost_confidence_intervals.save(
+        results_directory + "/confidence_intervals.png",
+        "PNG")
     
     # Save the model parameters
     torch.save(model.state_dict(),

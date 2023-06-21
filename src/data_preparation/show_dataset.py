@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont  # Image processing
 from tqdm import tqdm  # Progress bar
 
 
-DATASET = "datasets/dataset_to_delete/"
+DATASET = "datasets/dataset_multimodal_siamese2/"
 
 # Read the csv file containing image names and
 # associated pitch velocity variance measurements
@@ -76,20 +76,23 @@ for line in range(2):
         pbar.update()
         
         # Display the image
-        img_name = os.path.join(DATASET + "images",
-                                sorted_frame.iloc[nb_observations - 10 + line*5 + col, 0])
+        img_name = os.path.join(
+            DATASET + "images",
+            sorted_frame.iloc[nb_observations - 10 + line*5 + col, 0])
         image = Image.open(img_name + ".png")
         image = image.resize((320, 180))
         collage.paste(image, (10 + 340*col, 580 + line*250))
         
         # Add the associated traversal cost
-        draw.text((100 + 340*col, 760 + line*250),
-                  f"{sorted_frame.iloc[nb_observations - 10 + line*5 + col, 1]:.5f}",
-                  font=fnt, fill=(255, 255, 255, 255))
+        draw.text(
+            (100 + 340*col, 760 + line*250),
+            f"{sorted_frame.iloc[nb_observations - 10 + line*5 + col, 1]:.5f}",
+            font=fnt, fill=(255, 255, 255, 255))
         
-        draw.text((100 + 340*col, 790 + line*250),
-                  f"{sorted_frame.iloc[nb_observations - 10 + line*5 + col, 3]:.3f} m/s",
-                  font=fnt, fill=(255, 255, 255, 255))
+        draw.text(
+            (100 + 340*col, 790 + line*250),
+            f"{sorted_frame.iloc[nb_observations - 10 + line*5 + col, 3]:.3f} m/s",
+            font=fnt, fill=(255, 255, 255, 255))
 
 
 collage.save(f"results/{DATASET}collage.png", "PNG")

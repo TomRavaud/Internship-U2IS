@@ -75,9 +75,24 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 ###########################################################
 
 # Set the parameters for the bilateral filter
-BILATERAL_FILTER = {"d": 5,
-                    "sigmaColor": 0.5,
-                    "sigmaSpace": 2}
+# BILATERAL_FILTER = {"d": 5,
+#                     "sigmaColor": 0.5,
+#                     "sigmaSpace": 2}
+BILATERAL_FILTER = None
 
 # Threshold for the gradient magnitude
-GRADIENT_THR = 5
+GRADIENT_THR = 8
+
+# Set the depth range
+DEPTH_RANGE = (0.7, 7)  # [m]
+
+# Set the default normal vector to replace the invalid ones
+DEFAULT_NORMAL = [0, 0, 1]
+
+
+###########################
+## Train and test splits ##
+###########################
+
+# Tell if the splits must be stratified or not
+STRATIFY = False

@@ -1,7 +1,7 @@
 """ Robot parameters """
 
 import numpy as np
-import utils.frames as frames
+import utilities.frames as frames
 
 
 ###########################################
