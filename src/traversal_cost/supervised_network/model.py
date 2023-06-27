@@ -13,16 +13,18 @@ class SupervisedNetwork(nn.Module):
         
         # Setting up the Fully Connected Layers
         self.mlp = nn.Sequential(
-            nn.Linear(params.supervised_learning.INPUT_FEATURE_SIZE, 50),
-            nn.ReLU(inplace=True),
-            nn.Linear(50, 25),
-            nn.ReLU(inplace=True),
-            nn.Linear(25, 10),
-            nn.ReLU(inplace=True),
-            nn.Linear(10, 1),
-            )
-
-
+            nn.Linear(params.supervised_learning.INPUT_FEATURE_SIZE, 64),
+            nn.ReLU(),
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+            nn.ReLU()
+        )
+        
     def forward(self, x):
 
         output = self.mlp(x)

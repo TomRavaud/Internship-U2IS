@@ -31,8 +31,8 @@ def test_supervised(model,
             
             # Perform forward pass
             predicted_cost = model(feature)
-            print(f"predicted_cost is {predicted_cost}")
-            print(f"real cost is {real_cost}")
+            #print(f"predicted_cost is {predicted_cost}")
+            #print(f"real cost is {real_cost}")
 
             # Compute loss
             loss = criterion(predicted_cost, real_cost)

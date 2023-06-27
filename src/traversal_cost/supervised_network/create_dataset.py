@@ -340,11 +340,11 @@ class SupervisedDatasetBuilder():
 # this file is imported in another one
 if __name__ == "__main__":
     
-    dataset = SupervisedDatasetBuilder(name="big_DS_test")
+    dataset = SupervisedDatasetBuilder(name="small_DS_test")
     
     # List of the bag files to be processed
     files=[
-        "bagfiles/raw_bagfiles/Terrains_Samples/"
+        "bagfiles/raw_bagfiles/speed_dependency/"
         ]
     
     # Choose between manual labeling or labeling from a csv file
