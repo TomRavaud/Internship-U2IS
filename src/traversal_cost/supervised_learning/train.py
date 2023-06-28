@@ -1,4 +1,6 @@
-from tqdm.notebook import tqdm
+# from tqdm.notebook import tqdm
+from tqdm import tqdm
+
 
 def train(model,
           device,
@@ -31,36 +33,30 @@ def train(model,
     train_loader_pbar = tqdm(train_loader, unit="batch")
         
     # Loop over the training batches
-    for feature, real_cost in train_loader_pbar:
+    for features, true_costs in train_loader_pbar:
                 
         # Print the epoch and training mode
         train_loader_pbar.set_description(f"Epoch {epoch} [train]")
         
         # Move features to GPU (if available)
-        #feature = torch.Tensor(feature).to(device)
-        feature = feature.to(device)
-        real_cost = real_cost.to(device)
+        features = features.to(device)
+        true_costs = true_costs.to(device)
         
+        # Add a dimension to the linear velocities tensor
+        true_costs.unsqueeze_(1)
         
         # Zero out gradients before each backpropagation pass, to avoid that
         # they accumulate
         optimizer.zero_grad()
         
         # Perform forward pass
-        predicted_costs = model(feature)
+        predicted_costs = model(features)
         
         # Compute loss 
         loss = criterion(predicted_costs,
-                         real_cost)
+                         true_costs)
         
-        #print(f"loss = {loss}, type loss is {type(loss)} and shape = {loss.shape}")
-        
-        
-        # Print the batch loss next to the progress bar
-        #print(f"loss.item() = {loss.item()}")
-
         train_loader_pbar.set_postfix(batch_loss=loss.item())
-        
         
         # Perform backpropagation (update weights)
         loss.backward()
@@ -74,6 +70,5 @@ def train(model,
     
     # Compute the loss average over the epoch
     train_loss /= len(train_loader)
-    #print(f"output type = {type(train_loss)}")
     
     return train_loss

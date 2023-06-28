@@ -1,4 +1,5 @@
-from tqdm.notebook import tqdm
+# from tqdm.notebook import tqdm
+from tqdm import tqdm
 import torch
 
 
@@ -29,25 +30,28 @@ def validate(model,
     # Add a progress bar
     val_loader_pbar = tqdm(val_loader, unit="batch")
     
-    # Turn off gradients computation (the backward computational graph is built during
-    # the forward pass and weights are updated during the backward pass, here we avoid
-    # building the graph)
+    # Turn off gradients computation (the backward computational graph is
+    # built during the forward pass and weights are updated during the backward
+    # pass, here we avoid building the graph)
     with torch.no_grad():
         # Loop over the validation batches
-        for feature, real_cost in val_loader_pbar:
+        for features, true_costs in val_loader_pbar:
 
             # Print the epoch and validation mode
             val_loader_pbar.set_description(f"Epoch {epoch} [val]")
 
             # Move features to GPU (if available)
-            feature = feature.to(device)
-            real_cost = real_cost.to(device)
+            features = features.to(device)
+            true_costs = true_costs.to(device)
+            
+            # Add a dimension to the linear velocities tensor
+            true_costs.unsqueeze_(1)
             
             # Perform forward pass (only, no backpropagation)
-            predicted_cost = model(feature)
+            predicted_costs = model(features)
 
             # Compute loss
-            loss = criterion(predicted_cost, real_cost)
+            loss = criterion(predicted_costs, true_costs)
 
             # Print the batch loss next to the progress bar
             val_loader_pbar.set_postfix(batch_loss=loss.item())

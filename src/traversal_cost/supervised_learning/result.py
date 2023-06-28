@@ -17,9 +17,10 @@ import params.supervised_learning
 import traversalcost.utils
 import utils_supervised
 
+
 def parameters_table(dataset: str,
                      learning_params: dict) -> List[List[Any]]:
-    """Generate a table containing the parameters used to train the Siamese
+    """Generate a table containing the parameters used to train the
     network
     
     Args:
@@ -38,7 +39,6 @@ def parameters_table(dataset: str,
             "Test size",
             "Batch size",
             "Nb epochs",
-            "Margin",
             "Learning rate",
             "Weight decay",
             "Momentum",
@@ -50,7 +50,6 @@ def parameters_table(dataset: str,
             params.supervised_learning.TEST_SIZE,
             learning_params["batch_size"],
             learning_params["nb_epochs"],
-            learning_params["margin"],
             learning_params["learning_rate"],
             learning_params["weight_decay"],
             learning_params["momentum"],
@@ -66,111 +65,15 @@ def parameters_table(dataset: str,
     
     return table
 
-def generate_log_2(dataset_directory: str,
-                 results_directory: str,
-                 test_loss: float,
-                 parameters_table: List[List[Any]],
-                 model: torch.nn.Module,
-                 loss_values: torch.Tensor) -> None:
-    """Create a directory to store the results of the training and save the
-    results in it
-
-    Args:
-        dataset_directory (str): Path to the dataset
-        results_directory (str): Path to the directory where the results will
-        be stored
-        test_loss (float): Test loss
-        parameters_table (table): Table of parameters
-        model (nn.Module): Siamese network
-        loss_values (Tensor): Loss values
-    """    
-    # Create the directory
-    print(f"trying to create the directory")
-    print(f"results_directory is {results_directory}")
-    
-    os.makedirs(results_directory, exist_ok=True)
-    print(f"the directory is created")
-    
-    # Open a text file
-    test_loss_file = open(results_directory + "/test_results.txt", "w")
-    
-    # Write the test loss in it
-    test_loss_file.write(f"Test loss: {test_loss}\n")
-    
-    # Close the file
-    test_loss_file.close()
-    
-    # Open a text file
-    parameters_file = open(results_directory + "/parameters_table.txt", "w")
-    
-    # Write the table of learning parameters in it
-    parameters_file.write(parameters_table)
-    
-    # Close the file
-    parameters_file.close()
-    
-    # Open a text file
-    network_file = open(results_directory + "/network.txt", "w")
-    
-    # Write the network in it
-    print(model, file=network_file)
-    
-    # Close the file
-    network_file.close()
-    
-    # Create and save the learning curve
-    train_losses = loss_values[0]
-    val_losses = loss_values[1]
-
-    plt.figure()
-
-    plt.plot(train_losses, "b", label="train loss")
-    plt.plot(val_losses, "r", label="validation loss")
-
-    plt.legend()
-    plt.xlabel("Epoch")
-    
-    plt.savefig(results_directory + "/learning_curve.png")
-    
-    plt.figure()
-    
-    # Compute the traversal costs from the features of the dataset
-    #costs_df = traversalcost.utils.compute_traversal_costs(
-    #    dataset=dataset_directory,
-    #    cost_function=model.to(device="cpu"),
-    #    to_tensor=True)
-    
-    costs_df = utils_supervised.compute_traversal_costs(dataset = dataset_directory,
-                            cost_function=model.to(device="cpu"),
-                            only_test = True,
-                            to_tensor=True)
-    
-    # Display the traversal costs
-    #cost_graph = traversalcost.utils.display_traversal_costs(costs_df)
-    cost_graph = utils_supervised.display_traversal_costs(costs_df, theoric = True, 
-                                    dictionnary = params.supervised_learning.terrain_cost)
-    
-    # Save the traversal cost graph
-    cost_graph.save(results_directory + "/traversal_cost_graph.png", "PNG")
-    
-    # Display the whiskers
-    #cost_whiskers = traversalcost.utils.display_traversal_costs_whiskers(costs_df)
-    
-    # Save the whiskers
-    #cost_whiskers.save(results_directory + "/traversal_cost_whiskers.png", "PNG")
-    
-    # Save the model parameters
-    torch.save(model.state_dict(),
-               results_directory + "/" + params.supervised_learning.PARAMS_FILE)
-
-
 
 def generate_log(dataset_directory: str,
                  results_directory: str,
                  test_loss: float,
                  parameters_table: List[List[Any]],
                  model: torch.nn.Module,
-                 loss_values: torch.Tensor) -> None:
+                 loss_values: torch.Tensor,
+                 standardize: callable=None,
+                 labels_file: str="labels.csv") -> None:
     """Create a directory to store the results of the training and save the
     results in it
 
@@ -225,7 +128,9 @@ def generate_log(dataset_directory: str,
     costs_df = traversalcost.utils.compute_traversal_costs(
         dataset=dataset_directory,
         cost_function=model.to(device="cpu"),
-        to_tensor=True)
+        to_tensor=True,
+        standardize=standardize,
+        labels_file=labels_file)
     
     # Display the traversal costs
     cost_graph = traversalcost.utils.display_traversal_costs(costs_df)

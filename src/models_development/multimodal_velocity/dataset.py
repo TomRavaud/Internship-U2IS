@@ -17,6 +17,7 @@ class TraversabilityDataset(Dataset):
     def __init__(self,
                  traversal_costs_file: str,
                  images_directory: str,
+                 modes: str="c",
                  transform_image: callable=None,
                  transform_depth: callable=None,
                  transform_normal: callable=None) -> None:
@@ -39,6 +40,9 @@ class TraversabilityDataset(Dataset):
         
         # Initialize the name of the images directory
         self.images_directory = images_directory
+        
+        # Initialize the modes
+        self.modes = modes
         
         # Initialize the transforms
         self.transform_image = transform_image
@@ -75,32 +79,49 @@ class TraversabilityDataset(Dataset):
             self.images_directory,
             self.traversal_costs_frame.loc[idx, "image_id"])
         
-        # Read the image
-        image = Image.open(image_name + ".png")
+        # Set an empty list to store the images to concatenate
+        multimodal_image = []
         
-        # Eventually apply transforms to the image
-        if self.transform_image:
-            image = self.transform_image(image)
+        if "c" in self.modes:
+        
+            # Read the RGB image
+            image = Image.open(image_name + ".png")
+
+            # Eventually apply transforms to the image
+            if self.transform_image:
+                image = self.transform_image(image)
+                
+            # Append the image to the list
+            multimodal_image.append(image)
+        
+        if "d" in self.modes:
             
-        # Read the depth image
-        # depth_image = tifffile.imread(image_name + "d.tiff")
-        depth_image = Image.open(image_name + "d.png")
-        
-        # Eventually apply transforms to the depth image
-        if self.transform_depth:
-            depth_image = self.transform_depth(depth_image)
+            # Read the depth image
+            # depth_image = tifffile.imread(image_name + "d.tiff")
+            depth_image = Image.open(image_name + "d.png")
+
+            # Eventually apply transforms to the depth image
+            if self.transform_depth:
+                depth_image = self.transform_depth(depth_image)
             
-        # Read the normal map
-        # normal_map = tifffile.imread(image_name + "n.tiff")
-        normal_map = Image.open(image_name + "n.png")
+            # Append the depth image to the list
+            multimodal_image.append(depth_image)
         
-        # Eventually apply transforms to the normal map
-        if self.transform_normal:
-            normal_map = self.transform_normal(normal_map)
+        if "n" in self.modes:
+            
+            # Read the normal map
+            # normal_map = tifffile.imread(image_name + "n.tiff")
+            normal_map = Image.open(image_name + "n.png")
+
+            # Eventually apply transforms to the normal map
+            if self.transform_normal:
+                normal_map = self.transform_normal(normal_map)
+                
+            # Append the normal map to the list
+            multimodal_image.append(normal_map)
         
-        # Concatenate the rgb, depth and normal images
-        # multimodal_image = torch.cat((image, depth_image)).float()
-        multimodal_image = torch.cat((image, depth_image, normal_map)).float()
+        # Concatenate the images
+        multimodal_image = torch.cat(multimodal_image).float()
         
         # Get the corresponding traversal cost
         traversal_cost =\

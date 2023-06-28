@@ -10,23 +10,29 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.model_selection import train_test_split
 from torch import optim
 import optuna
-
-print(f"Optuna is imported")
-
 import warnings
 import os
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+plt.rcParams.update({
+    "pgf.texsystem": "pdflatex",
+    'font.family': 'serif',
+    'text.usetex': True,
+    'pgf.rcfonts': False,
+    "figure.figsize": (10,5),
+})
 
 # Import custom packages and modules
 import params.supervised_learning
-from dataset import SupervisedNetworkDataset
+from dataset import SupervisedLearningDataset
 from model import SupervisedNetwork
-from loss import SupervisedLoss
 from train import train
 from validate import validate
-from test import test_supervised 
-from result_supervised import parameters_table, generate_log
+from test import test 
+from result import parameters_table, generate_log
+from utils import compute_mean_std, Standardize
 
-print(f"custom packages are imported")
 
 def objective(trial):
     """Objective function for Optuna.
@@ -41,38 +47,48 @@ def objective(trial):
     print("\nTrial", trial.number) 
     
     # Select parameter uniformaly within the range
-    lr = trial.suggest_float("lr", 1e-5, 1e-1, log=True)
-    wd = trial.suggest_float("wd", 1e-10, 1e-1, log=True)
-    batch_size = trial.suggest_int("batc_size", 1, 10)
+    lr = trial.suggest_float("lr", 1e-6, 1e-2, log=True)
+    # wd = trial.suggest_float("wd", 1e-8, 1e-1, log=True)
+    batch_size = trial.suggest_int("batch\_size", 1, 64)
     
     # Load learning parameters
     LEARNING_PARAMS = params.supervised_learning.LEARNING
     
     # Update the learning parameters
-    LEARNING_PARAMS.update({"weight_decay": wd,
-                            "learning_rate": lr,
-                            "batch_size": batch_size})
+    LEARNING_PARAMS.update({
+        # "weight_decay": wd,
+        "learning_rate": lr,
+        "batch_size": batch_size
+        })
     
     # Set the path to the dataset
-    DATASET = "./src/traversal_cost/datasets/dataset_small_DS_test/"
-    print(f"dataset is {DATASET}")
+    DATASET = "src/traversal_cost/datasets/dataset_to_delete/"
+    
+    # Standardize the data
+    mean, std = compute_mean_std(DATASET)
+    # Instantiate the standardize class
+    standardize = Standardize(mean, std)
     
     # Create a Dataset for training
-    train_set = SupervisedNetworkDataset(params.supervised_learning.DATASET + "traversalcosts_train.csv",
-                                         params.supervised_learning.DATASET + "/features")
+    train_set = SupervisedLearningDataset(
+        DATASET + "traversal_costs_train.csv",
+        DATASET + "/features",
+        transform=standardize.standardize)
     
     # Create a Dataset for validation
     # (same as training here since no transformation is applied to the data,
     # train and validation sets will be split later)
-    
-    val_set = SupervisedNetworkDataset(params.supervised_learning.DATASET + "traversalcosts_train.csv",
-                                        params.supervised_learning.DATASET + "/features")
+    val_set = SupervisedLearningDataset(
+        DATASET + "traversal_costs_train.csv",
+        DATASET + "/features",
+        transform=standardize.standardize)
     
     # Create a Dataset for testing
-    test_set = SupervisedNetworkDataset(params.supervised_learning.DATASET +"traversalcosts_test.csv",
-                                                    params.supervised_learning.DATASET + "/features")
+    test_set = SupervisedLearningDataset(
+        DATASET +"traversal_costs_test.csv",
+        DATASET + "/features",
+        transform=standardize.standardize)
 
-    
     # Set the train dataset size
     train_size = params.supervised_learning.TRAIN_SIZE/(1-params.supervised_learning.TEST_SIZE)
 
@@ -118,7 +134,8 @@ def objective(trial):
     
     
     # Create a model
-    model = SupervisedNetwork().to(device=device)
+    nb_input_features = len(train_set[0][0])
+    model = SupervisedNetwork(input_size=nb_input_features).to(device=device)
     
     # Create a loss function
     criterion = nn.MSELoss()
@@ -161,15 +178,20 @@ def objective(trial):
         loss_values[0, epoch] = train_loss
         loss_values[1, epoch] = val_loss
         
+        # Abort the training if a NaN value is encountered (exploding gradient)
+        if np.isnan(val_loss):
+            print("NaN value encountered, stopping the training")
+            return
+        
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_epoch = epoch
     
     # Test the model
-    test_loss = test_supervised(model,
-                                device,
-                                test_loader,
-                                criterion)
+    test_loss = test(model,
+                     device,
+                     test_loader,
+                     criterion)
     
     # Get the learning parameters table
     params_table = parameters_table(dataset=DATASET,
@@ -180,7 +202,7 @@ def objective(trial):
     
     # Set the path to the results directory
     results_directory = directory +\
-                        "/src/traversal_cost/supervised_network/logs_optuna_wd/_" +\
+                        "/src/traversal_cost/supervised_learning/logs_optuna3/_" +\
                         str(trial.number)
  
     # Generate the log directory
@@ -189,29 +211,31 @@ def objective(trial):
                  test_loss=test_loss,
                  parameters_table=params_table,
                  model=model,
-                 loss_values=loss_values)
+                 loss_values=loss_values,
+                 standardize=standardize.standardize,
+                 labels_file="traversal_costs_test.csv")
+    
+    # Close all the previously opened figures
+    plt.close("all")
 
     return best_val_loss
 
 
 # Set the number of trials
-NB_TRIALS = 15
+NB_TRIALS = 200
 
 # Ignore warnings
-warnings.filterwarnings("ignore")
+# warnings.filterwarnings("ignore")
 
 # Samplers: GridSampler, RandomSampler, TPESampler, CmaEsSampler,
 # PartialFixedSampler, NSGAIISampler, QMCSampler
 # Pruners: MedianPruner, NopPruner, PatientPruner, PercentilePruner,
 # SuccessiveHalvingPruner, HyperbandPruner, ThresholdPruner
-
 study = optuna.create_study(
     direction="minimize",
     sampler=optuna.samplers.TPESampler(),
-    #pruner=optuna.pruners.MedianPruner(),
-    storage = "sqlite:///src/traversal_cost/supervised_network/logs_optuna_wd/supervised_cost.db",
-    study_name = "supervised_cost"
+    storage = "sqlite:///src/traversal_cost/supervised_learning/logs_optuna3/supervised_cost.db",
+    study_name = "supervised_learning"
     )
 
 study.optimize(objective, n_trials=NB_TRIALS)
-

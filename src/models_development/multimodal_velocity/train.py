@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from tqdm.notebook import tqdm
+from tqdm import tqdm
+# from tqdm.notebook import tqdm
 
 
 def train(model: nn.Module,

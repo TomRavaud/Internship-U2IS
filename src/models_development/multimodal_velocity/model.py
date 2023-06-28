@@ -11,8 +11,8 @@ class ResNet18Velocity(nn.Module):
     
     def __init__(self,
                  nb_classes=10,
-                 nb_input_features=1,
-                 nb_input_channels=7):
+                 nb_input_channels=7,
+                 nb_fc_features=256):
         
         super(ResNet18Velocity, self).__init__()
         
@@ -34,8 +34,10 @@ class ResNet18Velocity(nn.Module):
             bias=False
         )
         # Replace the last fully-connected layer to have n classes as output
-        self.resnet18.fc = nn.Linear(self.resnet18.fc.in_features+1, 256)
-        self.fc = nn.Linear(256, nb_classes)
+        self.resnet18.fc = nn.Linear(self.resnet18.fc.in_features+1,
+                                     nb_fc_features)
+        self.fc = nn.Linear(nb_fc_features,
+                            nb_classes)
         
         ## Numeric input processing ##
         # self.mlp = nn.Sequential(
@@ -71,31 +73,26 @@ class ResNet18Velocity(nn.Module):
         # Element-wise product of the activation map and the main-
         # channel input
         # x = x_img * x_dense
-        x = x_img
         
         # Forward pass through the ResNet18
-        x = self.resnet18.conv1(x)
-        x = self.resnet18.bn1(x)
-        x = self.resnet18.relu(x)
-        x = self.resnet18.maxpool(x)
+        x_img = self.resnet18.conv1(x_img)
+        x_img = self.resnet18.bn1(x_img)
+        x_img = self.resnet18.relu(x_img)
+        x_img = self.resnet18.maxpool(x_img)
         
-        x = self.resnet18.layer1(x)
-        x = self.resnet18.layer2(x)
-        x = self.resnet18.layer3(x)
-        x = self.resnet18.layer4(x)
+        x_img = self.resnet18.layer1(x_img)
+        x_img = self.resnet18.layer2(x_img)
+        x_img = self.resnet18.layer3(x_img)
+        x_img = self.resnet18.layer4(x_img)
         
-        # print(x.shape)
-        x = F.avg_pool2d(x, x.size()[2:])
-        # print(x.shape)
-        x = x.view(x.size(0), -1)
+        x_img = F.avg_pool2d(x_img, x_img.size()[2:])
+        x_img = x_img.view(x_img.size(0), -1)
         
-        x = torch.cat((x, x_dense), dim=1)
-        # print(x.shape)
+        # Merge the image and numeric inputs
+        x = torch.cat((x_img, x_dense), dim=1)
         
         x = self.resnet18.fc(x)
-        
         x = F.relu(x)
-        
         x = self.fc(x)
         
         return x

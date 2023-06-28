@@ -8,6 +8,19 @@ import torch
 # Define the data to be used
 DATASET = "../../../datasets/dataset_multimodal_siamese_png/"
 
+# Choose the modes to be used
+MODES = "cd"
+
+# Compute the number of input channels given the modes
+nb_input_channels = 0
+
+if "c" in MODES:
+        nb_input_channels += 3
+if "n" in MODES:
+        nb_input_channels += 3
+if "d" in MODES:
+        nb_input_channels += 1
+
 # Define splits size
 TRAIN_SIZE = 0.7
 VAL_SIZE = 0.15
@@ -15,9 +28,9 @@ TEST_SIZE = 0.15
 
 # Set learning parameters
 LEARNING = {"batch_size": 32,
-            "nb_epochs": 40,
-            "learning_rate": 1e-4,
-            "weight_decay": 0.001,
+            "nb_epochs": 200,
+            "learning_rate": 5e-4,
+            "weight_decay": 1e-5,
             "momentum": 0.9}
 
 
@@ -44,9 +57,20 @@ NORMALIZE_PARAMS = {"rbg": {"mean": torch.tensor([0.4710, 0.5030, 0.4580]),
 ####################
 
 # Set the parameters for the network
-NET_PARAMS = {"nb_input_channels": 7,
+NET_PARAMS = {"nb_input_channels": nb_input_channels,
               "nb_input_features": 1,
-              "nb_classes": 10}
+              "nb_classes": 10,
+              "nb_fc_features": 128}
+
+# Set the parameters for the network
+NET_PARAMS2 = {"img_channels": nb_input_channels,
+               "num_layers": 18,
+               "num_classes": 10,
+               "in_channels1": 64,
+               "in_channels2": 128,
+               "in_channels3": 256,
+               "in_channels4": 512,
+               "num_fc_features": 128}
 
 
 #######################################

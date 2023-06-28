@@ -112,24 +112,28 @@ def generate_description(dict):
     return table
 
 
-def compute_traversal_costs(dataset,
-                            cost_function,
-                            to_tensor=False):
+def compute_traversal_costs(dataset: str,
+                            cost_function: callable,
+                            to_tensor: bool=False,
+                            standardize: callable=None,
+                            labels_file: str="labels.csv") -> pd.DataFrame:
     """Compute the traversal cost of each sample in a dataset
 
     Args:
-        dataset (string): Path to the dataset
-        cost_function (function): Function used to compute the cost of a
+        dataset (str): Path to the dataset
+        cost_function (callable): Function used to compute the cost of a
         sample
         to_tensor (bool, optional): If True, convert the cost to a tensor.
         Defaults to False.
+        standardize (callable, optional): Function used to standardize the
+        features. Defaults to None.
 
     Returns:
         dataframe: A dataframe containing the terrain classes, the linear
         velocities of the robot and the traversal costs
     """    
     # Read the csv file containing the labels
-    labels_df = pd.read_csv(dataset + "labels.csv",
+    labels_df = pd.read_csv(dataset + labels_file,
                             converters={"id": str})
     
     # Add an empty column to the dataframe
@@ -142,9 +146,14 @@ def compute_traversal_costs(dataset,
         # Load the features of the current sample
         features = np.load(dataset + "features/" + str(id) + ".npy")
         
-        # Convert the features to a tensor if required
+        # Standardize the features if required
+        if standardize:
+            features = standardize(features)
+
+        # Convert the features to a tensor if required and add a dimension
         if to_tensor:
             features = torch.from_numpy(features).float()
+            features = features.unsqueeze_(0)
         
         # Compute the cost of the current sample
         cost = cost_function(features)
@@ -162,6 +171,7 @@ def compute_traversal_costs(dataset,
                           "cost"]]
     
     return costs_df
+
 
 def display_traversal_costs(costs_df: pd.DataFrame) -> Image:
     """Display the traversal costs of samples. Each terrain class is
@@ -229,11 +239,6 @@ def display_traversal_costs_whiskers(costs_df: pd.DataFrame) -> Image:
     Returns:
         Image: An image of the figure
     """
-    
-    # print(costs_df.info(verbose=True))
-    # print(costs_df["cost"].detach().numpy().describe())
-    
-    # costs_df.astype({"cost": "float64"}).dtypes
     
     # Get the list of the terrain classes
     labels_unique = list(set(costs_df["terrain_class"]))
@@ -335,8 +340,9 @@ def display_confidence_intervals(costs_df: pd.DataFrame) -> Image:
     # Get the list of the terrain classes
     labels_unique = list(set(costs_df["terrain_class"]))
     
-    # Get the list of the linear velocities
-    velocities_unique = list(set(costs_df["linear_velocity"]))
+    # Get the list of the linear velocities (the list is sorted for
+    # visualization purposes)
+    velocities_unique = sorted(list(set(costs_df["linear_velocity"])))
     
     # Open a figure
     figure = plt.figure()
